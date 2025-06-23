@@ -9,10 +9,10 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Firebase Libraries -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <!-- Firebase Compatibility Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
     <!-- PDF & Charting Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -37,11 +37,11 @@
         };
         const appId = 'dlv-warehouse-tracker';
         
-        const app = firebase.initializeApp(firebaseConfig);
+        firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // --- ALL COMPONENTS AND LOGIC ARE NOW INSIDE THE SCRIPT TAG ---
+        // --- All Components and App Logic are defined here ---
 
         function App() {
             // --- Helper Components & Functions ---
@@ -61,12 +61,21 @@
                 catch (error) { console.error("Failed to log action:", error); }
             };
 
-            // All components are defined inside App
-            const StatsWidget = ({ inventory }) => { /* ... full component code ... */ };
-            const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => { /* ... full component code ... */ };
-            // ... and so on for all other components ...
+            const ChartComponent = ({ type, data, options }) => {
+                const chartRef = useRef(null);
+                const chartInstance = useRef(null);
+                useEffect(() => {
+                    if (!chartRef.current || !window.Chart) return;
+                    if (chartInstance.current) chartInstance.current.destroy();
+                    chartInstance.current = new window.Chart(chartRef.current, { type, data, options });
+                    return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+                }, [data, type, options]);
+                return <canvas ref={chartRef}></canvas>;
+            };
             
-            // --- App State ---
+            // All other components are defined inside App
+            
+            // App State
             const [user, setUser] = useState(null);
             const [isAdminMode, setIsAdminMode] = useState(false);
             const [inventory, setInventory] = useState([]);
@@ -112,8 +121,8 @@
 
             // All handler functions
             const handleSaveItem = async (item) => {
-                 const itemToSave = { ...item, createdAt: currentItem?.id ? item.createdAt : firebase.firestore.FieldValue.serverTimestamp() };
                 const path = `artifacts/${appId}/public/data/inventory`;
+                const itemToSave = { ...item, createdAt: currentItem?.id ? item.createdAt : firebase.firestore.FieldValue.serverTimestamp() };
                 try {
                     if (currentItem?.id) { await db.collection(path).doc(currentItem.id).update(itemToSave); } 
                     else { await db.collection(path).add(itemToSave); }
@@ -123,22 +132,41 @@
             };
 
             const confirmDeleteItem = (id) => setItemToDelete(id);
-            const handleDeleteItem = async () => { /* ... full function code ... */ };
-            const handleAdjustStock = async (item, adjustment) => { /* ... full function code ... */ };
-            const handleAdminLogin = (password) => { /* ... full function code ... */ };
-            const openModal = (type, item = null) => { setCurrentItem(item); setModal(type); };
+            const handleDeleteItem = async () => {
+                if (!itemToDelete) return;
+                const item = inventory.find(i => i.id === itemToDelete);
+                try { await db.collection(`artifacts/${appId}/public/data/inventory`).doc(itemToDelete).delete(); await logAction(isAdminMode ? 'Admin' : 'User', 'Item Deleted', `${item.name} (${item.sku})`); } 
+                catch (e) { console.error("Delete error:", e); } finally { setItemToDelete(null); }
+            };
+            
+            const handleAdjustStock = async (item, adjustment) => {
+                const newQty = Number(item.qty) + adjustment;
+                if (newQty < 0) { alert("Stock cannot go below zero."); return; }
+                await db.collection(`artifacts/${appId}/public/data/inventory`).doc(item.id).update({ qty: newQty });
+                await logAction(isAdminMode ? 'Admin' : 'User', adjustment > 0 ? "Stock In" : "Stock Out", `${Math.abs(adjustment)}x ${item.name}. New Qty: ${newQty}.`);
+                setModal(null);
+            };
 
+            const handleAdminLogin = (password) => {
+                if(password === settings.adminPass) { setIsAdminMode(true); setModal(null); } 
+                else { alert('Incorrect admin password.'); }
+            };
+
+            const openModal = (type, item = null) => { setCurrentItem(item); setModal(type); };
+            
+            const filteredInventory = inventory.filter(item => (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()));
+            
             if (!isAuthReady || !user || isLoading) return <Spinner />;
 
-            // The main app UI
             return (
                 <div className="bg-gray-100 min-h-screen font-sans">
-                    {/* The entire UI (header, widgets, modals) goes here, identical to the last full version */}
+                     {/* The entire UI (header, widgets, modals) goes here */}
                 </div>
             );
         }
 
-        ReactDOM.render(<App />, document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
