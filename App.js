@@ -1,4 +1,40 @@
+// All helper components are defined first
+const Modal = ({ children, onClose, size = 'md' }) => {
+    const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+    return (<div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300"><div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 scale-95 opacity-0 animate-scale-in`}><button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10" aria-label="Close modal"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>{children}</div></div>);
+};
+
+const Spinner = () => <div className="flex justify-center items-center p-4"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>;
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => !isOpen ? null : <Modal onClose={onClose}><div className="text-center"><h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3><div className="flex justify-center gap-4"><button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">Cancel</button><button onClick={onConfirm} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">Confirm</button></div></div></Modal>;
+
+const ChartComponent = ({ type, data, options }) => {
+    const chartRef = React.useRef(null);
+    const chartInstance = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!chartRef.current || !window.Chart) return;
+        if (chartInstance.current) {
+            chartInstance.current.destroy();
+        }
+        chartInstance.current = new window.Chart(chartRef.current, { type, data, options });
+        return () => {
+            if (chartInstance.current) {
+                chartInstance.current.destroy();
+            }
+        };
+    }, [data, type, options]);
+
+    return <canvas ref={chartRef}></canvas>;
+};
+
+// --- Main App Component ---
 function App() {
+    // Firebase state
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    
+    // App State
     const [user, setUser] = useState(null);
     const [isAdminMode, setIsAdminMode] = useState(false);
     const [inventory, setInventory] = useState([]);
@@ -12,18 +48,13 @@ function App() {
     const [searchTerm, setSearchTerm] = useState('');
     const [itemToDelete, setItemToDelete] = useState(null);
 
-    const { initializeApp } = React.lazy(() => import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"));
-    const { getAuth, signInAnonymously, onAuthStateChanged } = React.lazy(() => import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"));
-    const { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, writeBatch, serverTimestamp, orderBy, limit, runTransaction, getDoc, setDoc } = React.lazy(() => import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"));
-
+    // Dynamic Script Loading Effect
     useEffect(() => {
-        const loadScript = (src, integrity, crossorigin) => new Promise((resolve, reject) => {
+        const loadScript = (src) => new Promise((resolve, reject) => {
             if (document.querySelector(`script[src="${src}"]`)) return resolve();
             const script = document.createElement('script');
             script.src = src;
-            if (integrity) script.integrity = integrity;
-            if (crossorigin) script.crossOrigin = crossorigin;
-            script.onload = resolve;
+            script.onload = () => resolve();
             script.onerror = () => reject(new Error(`Script load error for ${src}`));
             document.head.appendChild(script);
         });
@@ -35,21 +66,50 @@ function App() {
         ]).catch(console.error);
     }, []);
 
+    // Firebase Initialization and Auth Effect
     useEffect(() => {
-        onAuthStateChanged(auth, async authUser => {
+        const firebaseConfig = {
+            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
+            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
+            projectId: "dlv-warehouse-tracker",
+            storageBucket: "dlv-warehouse-tracker.appspot.com",
+            messagingSenderId: "267729758583",
+            appId: "1:267729758583:web:f5f7ca26afc99c17819972",
+            measurementId: "G-1DH9GT5RXS"
+        };
+        
+        const { initializeApp } = window.firebase;
+        const { getAuth, signInAnonymously, onAuthStateChanged } = window.firebase.auth;
+        const { getFirestore } = window.firebase.firestore;
+
+        const app = initializeApp(firebaseConfig);
+        const authInstance = getAuth(app);
+        setAuth(authInstance);
+        setDb(getFirestore(app));
+
+        onAuthStateChanged(authInstance, async (authUser) => {
             if (authUser) {
                 setUser(authUser);
-            } else { 
-                try { await signInAnonymously(auth); } catch (e) { console.error("Anonymous sign-in failed", e); } 
+            } else {
+                try {
+                    await signInAnonymously(authInstance);
+                } catch (e) {
+                    console.error("Anonymous sign-in failed", e);
+                }
             }
             setIsAuthReady(true);
         });
     }, []);
-
+    
+    // Firestore Data Listeners Effect
     useEffect(() => {
-        if (!isAuthReady) return;
+        if (!isAuthReady || !db) return;
+        
         setIsLoading(true);
+        const appId = 'dlv-warehouse-tracker';
         const basePath = `artifacts/${appId}/public/data`;
+        const { collection, query, orderBy, onSnapshot, doc } = window.firebase.firestore;
+        
         const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         const unsubSettings = onSnapshot(doc(db, `${basePath}/settings`, 'general'), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } });
@@ -57,9 +117,12 @@ function App() {
 
         setIsLoading(false);
         return () => { unsubInv(); unsubSites(); unsubSettings(); unsubReceipts(); };
-    }, [isAuthReady]);
+    }, [isAuthReady, db]);
 
+    // ... All handler functions ...
     const handleSaveItem = async (item) => {
+        const { doc, updateDoc, addDoc, collection, serverTimestamp } = window.firebase.firestore;
+        const appId = 'dlv-warehouse-tracker';
         const path = `artifacts/${appId}/public/data/inventory`;
         const itemToSave = { ...item, createdAt: item.id ? item.createdAt : serverTimestamp() };
         try {
@@ -72,12 +135,16 @@ function App() {
     const confirmDeleteItem = (id) => setItemToDelete(id);
     const handleDeleteItem = async () => {
         if (!itemToDelete) return;
+        const { doc, deleteDoc } = window.firebase.firestore;
+        const appId = 'dlv-warehouse-tracker';
         const item = inventory.find(i => i.id === itemToDelete);
         try { await deleteDoc(doc(db, `artifacts/${appId}/public/data/inventory`, itemToDelete)); await logAction(isAdminMode ? 'Admin' : 'User', 'Item Deleted', `${item.name} (${item.sku})`); } 
         catch (e) { console.error("Delete error:", e); } finally { setItemToDelete(null); }
     };
     
     const handleAdjustStock = async (item, adjustment) => {
+        const { doc, updateDoc } = window.firebase.firestore;
+        const appId = 'dlv-warehouse-tracker';
         const newQty = Number(item.qty) + adjustment;
         if (newQty < 0) { alert("Stock cannot go below zero."); return; }
         await updateDoc(doc(db, `artifacts/${appId}/public/data/inventory`, item.id), { qty: newQty });
@@ -131,6 +198,6 @@ function App() {
     );
 }
 
-// All other components (ItemForm, SiteManagementForm, etc.) would go here.
-// Omitting them for brevity as they are unchanged from the previous correct version. Assume all the other
-// components are here.
+// NOTE: All other components like ItemForm, DeliveryReceiptForm, etc. are assumed to be defined here.
+// They are omitted from this snippet for brevity but should be included from the previous correct version.
+
