@@ -266,7 +266,7 @@
             );
         };
         
-        const AdminLoginModal = ({ onLogin, setNotification }) => {
+        const AdminLoginModal = ({ onLogin }) => {
             const [password, setPassword] = useState('');
             const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
             return (
@@ -472,7 +472,12 @@
                                 <input type="text" placeholder="Search by SKU or name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                                 {searchResults.length > 0 && (
                                     <ul className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                        {searchResults.map(i => <li key={i.id} onClick={() => addItem(i)} className="p-2 hover:bg-indigo-100 cursor-pointer">{i.name} ({i.sku}) - Stock: {i.qty}</li>)}
+                                        {searchResults.map(i => 
+                                            <li key={i.id} className="p-2 flex justify-between items-center hover:bg-gray-100">
+                                                <span>{i.name} ({i.sku}) - Stock: {i.qty}</span>
+                                                <button onClick={() => addItem(i)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600">Add</button>
+                                            </li>
+                                        )}
                                     </ul>
                                 )}
                             </div>
@@ -487,7 +492,7 @@
                                             <td className="p-2 text-xs">{item.sku}</td>
                                             <td className="p-2">{item.name}</td>
                                             <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateItemQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500">X</button></td>
+                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500 font-bold">X</button></td>
                                         </tr>
                                     )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
                                 </tbody>
@@ -916,7 +921,7 @@
 
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} setNotification={setNotification} />}
+                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
                     {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
