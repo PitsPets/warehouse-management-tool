@@ -1,18 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, writeBatch, serverTimestamp, orderBy, limit, runTransaction, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, writeBatch, serverTimestamp, orderBy, limit, runTransaction, getDoc, setDoc, getDocs, where } from 'firebase/firestore';
+
+// --- Helper scripts for PDF generation will be loaded dynamically ---
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
-    apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPwY",
-    authDomain: "dlv-warehouse-tracker.firebaseapp.com",
-    projectId: "dlv-warehouse-tracker",
-    storageBucket: "dlv-warehouse-tracker.firebasestorage.app",
-    messagingSenderId: "267729758583",
-    appId: "1:267729758583:web:f5f7ca26afc99c17819972"
+  apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
+  authDomain: "dlv-warehouse-tracker.firebaseapp.com",
+  projectId: "dlv-warehouse-tracker",
+  storageBucket: "dlv-warehouse-tracker.appspot.com",
+  messagingSenderId: "267729758583",
+  appId: "1:267729758583:web:f5f7ca26afc99c17819972",
+  measurementId: "G-1DH9GT5RXS"
 };
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = 'dlv-warehouse-tracker'; // Using your project ID as the app ID
 
 // --- Initialize Firebase ---
 const app = initializeApp(firebaseConfig);
@@ -24,7 +27,7 @@ const db = getFirestore(app);
 const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
 const Modal = ({ children, onClose, size = 'md' }) => {
-    const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+    const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl' };
     return (<div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300"><div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 scale-95 opacity-0 animate-scale-in`}><button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10" aria-label="Close modal"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>{children}</div></div>);
 };
 
@@ -333,7 +336,8 @@ const DRHistory = ({ }) => {
     </tr>))}</tbody></table></div>}</div>);
 };
 
-export default function App() {
+
+function App() {
     const [user, setUser] = useState(null);
     const [isAdminMode, setIsAdminMode] = useState(false);
     const [inventory, setInventory] = useState([]);
