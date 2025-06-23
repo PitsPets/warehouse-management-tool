@@ -13,11 +13,17 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- Load the main App component -->
     <script type="text/babel" src="App.js"></script>
+
+    <!-- Entry point to render the App -->
     <script type="text/babel">
-      ReactDOM.render(
-        React.createElement(App),
-        document.getElementById('root')
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
       );
     </script>
   </body>
