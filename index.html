@@ -9,10 +9,17 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Firebase Compatibility Libraries -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <!-- Use the latest modular Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        window.firebaseApp = initializeApp;
+        
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        window.firebaseAuth = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.firestore = { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction };
+    </script>
 
     <!-- PDF & Charting Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -25,64 +32,110 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- Firebase Configuration & Initialization ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
-            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
-            projectId: "dlv-warehouse-tracker",
-            storageBucket: "dlv-warehouse-tracker.appspot.com",
-            messagingSenderId: "267729758583",
-            appId: "1:267729758583:web:f5f7ca26afc99c17819972",
-            measurementId: "G-1DH9GT5RXS"
-        };
-        const appId = 'dlv-warehouse-tracker';
-        
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        // --- Firebase Initialization (to be done in App component) ---
+        let db, auth;
 
-        // --- ALL COMPONENTS AND LOGIC ARE NOW DEFINED GLOBALLY WITHIN THE SCRIPT TAG ---
-
+        // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
+
+        // --- UI Components ---
+        const Spinner = ({ text = "Loading..." }) => (
+            <div className="bg-gray-100 min-h-screen flex flex-col justify-center items-center p-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                <p className="mt-4 text-gray-500">{text}</p>
+            </div>
+        );
 
         const Modal = ({ children, onClose, size = 'md' }) => {
             const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
-            return (<div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300 animate-scale-in"><div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300`}><button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10" aria-label="Close modal"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>{children}</div></div>);
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300 animate-scale-in">
+                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300`}>
+                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10" aria-label="Close modal">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        {children}
+                    </div>
+                </div>
+            );
+        };
+        
+        const NotificationModal = ({ message, type, onClose }) => {
+             const colors = {
+                success: 'bg-green-100 border-green-500 text-green-700',
+                error: 'bg-red-100 border-red-500 text-red-700',
+                info: 'bg-blue-100 border-blue-500 text-blue-700',
+            };
+            const btnColors = {
+                success: 'bg-green-600 hover:bg-green-700',
+                error: 'bg-red-600 hover:bg-red-700',
+                info: 'bg-blue-600 hover:bg-blue-700',
+            }
+            return (
+                <Modal onClose={onClose} size="sm">
+                    <div className="text-center">
+                        <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
+                            <p className="font-medium">{message}</p>
+                        </div>
+                        <button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
+                    </div>
+                </Modal>
+            );
         };
 
-        const Spinner = ({ text = "Loading..." }) => <div className="bg-gray-100 min-h-screen flex flex-col justify-center items-center p-4"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div><p className="mt-4 text-gray-500">{text}</p></div>;
-        
-        const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => !isOpen ? null : <Modal onClose={onClose}><div className="text-center"><h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3><div className="flex justify-center gap-4"><button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">Cancel</button><button onClick={onConfirm} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">Confirm</button></div></div></Modal>;
-        
-        const logAction = async (userName, action, details) => {
-            try { await db.collection(`artifacts/${appId}/public/data/logs`).add({ timestamp: firebase.firestore.FieldValue.serverTimestamp(), action, details, user: userName }); } 
-            catch (error) { console.error("Failed to log action:", error); }
+        const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel' }) => {
+            if (!isOpen) return null;
+            return (
+                <Modal onClose={onClose} size="sm">
+                    <div className="text-center">
+                        <h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3>
+                        <div className="flex justify-center gap-4">
+                            <button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">{cancelText}</button>
+                            <button onClick={onConfirm} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">{confirmText}</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
         };
         
-        const ChartComponent = ({ type, data, options }) => {
-            const chartRef = useRef(null);
-            const chartInstance = useRef(null);
-            useEffect(() => {
-                if (!chartRef.current || !window.Chart) return;
-                if (chartInstance.current) chartInstance.current.destroy();
-                chartInstance.current = new window.Chart(chartRef.current, { type, data, options });
-                return () => { if (chartInstance.current) chartInstance.current.destroy(); };
-            }, [data, type, options]);
-            return <canvas ref={chartRef}></canvas>;
-        };
+        // --- Widget & Form Components ---
 
         const StatsWidget = ({ inventory }) => {
             const totalItems = inventory.length;
             const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
             const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
-            const stats = [{ name: 'Total Unique Items', value: totalItems, icon: '📦' }, { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }];
-            return (<div className="bg-white rounded-2xl shadow-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{stats.map(stat => (<div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4"><div><p className="text-sm text-gray-500">{stat.name}</p><p className="text-2xl font-bold text-gray-800">{stat.value}</p></div></div>))}</div></div>);
+            const stats = [
+                { name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
+                { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
+                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
+            ];
+            return (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {stats.map(stat => (
+                            <div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
+                                <div className="text-2xl">{stat.icon}</div>
+                                <div>
+                                    <p className="text-sm text-gray-500">{stat.name}</p>
+                                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
         };
 
         const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
-            const filteredInventory = inventory.filter(item => (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()));
+            const filteredInventory = inventory.filter(item => 
+                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+            );
+
             return (
-                 <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
+                <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
                     <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
                         <div className="relative w-full sm:w-64">
@@ -90,24 +143,45 @@
                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
                     </div>
-                    {isLoading ? <Spinner /> : (
+                    {isLoading ? <Spinner text="Loading inventory..." /> : (
                         <div className="overflow-x-auto -mx-6">
                             <table className="w-full text-left table-auto">
-                                <thead><tr className="border-b-2 border-gray-100"><th className="p-4 text-sm font-semibold text-gray-600">SKU</th><th className="p-4 text-sm font-semibold text-gray-600">Name</th><th className="p-4 text-sm font-semibold text-gray-600">Price</th><th className="p-4 text-sm font-semibold text-gray-600">Qty</th><th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th></tr></thead>
+                                <thead>
+                                    <tr className="border-b-2 border-gray-100">
+                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                            <td className="p-4"><p className="font-medium text-gray-800">{item.name}</p><p className="text-sm text-gray-500">{item.brand}</p></td>
-                                            <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                            <td className={`p-4 font-semibold ${Number(item.qty) < Number(item.reorderLevel || settings.reorderLevel) ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                            <td className="p-4 text-right"><div className="flex justify-end gap-1">{ isAdminMode && <>
-                                                <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                <button onClick={() => onDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
-                                            </>}</div></td>
-                                        </tr>
-                                    )) : (<tr><td colSpan="5" className="text-center p-8 text-gray-500">{searchTerm ? `No items found.` : `Inventory is empty.`}</td></tr>)}
+                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                        const isLowStock = Number(item.qty) < reorder;
+                                        return (
+                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-red-50' : ''}`}>
+                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+                                                <td className="p-4">
+                                                    <p className="font-medium text-gray-800">{item.name}</p>
+                                                    <p className="text-sm text-gray-500">{item.brand}</p>
+                                                </td>
+                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
+                                                <td className="p-4 text-right">
+                                                    <div className="flex justify-end gap-1">
+                                                        {isAdminMode && <>
+                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+                                                        </>}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )
+                                    }) : (
+                                        <tr><td colSpan="5" className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -116,135 +190,432 @@
             );
         };
         
-        const LogsWidget = ({ isLoading }) => {
+        const LogsWidget = ({ isLoading, appId }) => {
             const [logs, setLogs] = useState([]);
             useEffect(() => {
-                const q = db.collection(`artifacts/${appId}/public/data/logs`).orderBy('timestamp', 'desc').limit(20);
-                const unsub = q.onSnapshot(snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                if (!db || !appId) return;
+                const { collection, query, orderBy, onSnapshot } = window.firestore;
+                const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
+                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+                    (error) => console.error("Error fetching logs:", error));
                 return () => unsub();
-            }, []);
-            return (<div className="bg-white rounded-2xl shadow-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">Activity Logs</h3>{isLoading ? <Spinner/> : logs.length > 0 ? (<ul className="space-y-3">{logs.map(log => (<li key={log.id} className="text-sm"><p className="font-medium text-gray-700">{log.action} by <span className="text-indigo-600">{log.user || 'System'}</span>: <span className="font-normal text-gray-600">{log.details}</span></p><p className="text-xs text-gray-400">{log.timestamp?.toDate().toLocaleString()}</p></li>))}</ul>) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}</div>);
+            }, [appId]);
+
+            return (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4">Activity Logs</h3>
+                    {isLoading ? <Spinner text="Loading logs..." /> : logs.length > 0 ? (
+                        <ul className="space-y-3 h-64 overflow-y-auto pr-2">
+                            {logs.map(log => (
+                                <li key={log.id} className="text-sm">
+                                    <p className="font-medium text-gray-700">
+                                        {log.action} by <span className="text-indigo-600">{log.user || 'System'}</span>: <span className="font-normal text-gray-600">{log.details}</span>
+                                    </p>
+                                    <p className="text-xs text-gray-400">{log.timestamp?.toDate().toLocaleString()}</p>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}
+                </div>
+            );
         };
 
-        const AdminLoginModal = ({ onLogin }) => {
-            const [password, setPassword] = useState('');
-            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
-            return (<form onSubmit={handleSubmit} className="space-y-4"><h2 className="text-2xl font-bold text-center text-gray-800">Admin Access</h2><div><label className="block text-sm font-medium">Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-3 py-2 border rounded-lg" autoFocus/></div><button type="submit" className="w-full px-6 py-2 text-white bg-indigo-600 rounded-full">Unlock</button></form>);
-        };
-        
-        const ItemForm = ({ currentItem, onSave, onClose }) => {
+        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
             const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
-            useEffect(() => { currentItem ? setItem(currentItem) : setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' }); }, [currentItem]);
-            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
-            const handleSubmit = (e) => { e.preventDefault(); if (!item.name || !item.sku) return alert('SKU and Name are required.'); onSave({...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel)}); };
-            return (<form onSubmit={handleSubmit} className="space-y-4"><h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2><div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required disabled={!currentItem} className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100" /></div><div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div><div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div><div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div></div><div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required disabled={!!currentItem} className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100" /></div><div className="flex justify-end gap-4 pt-4"><button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button><button type="submit" className="px-6 py-2 text-white bg-indigo-600 rounded-full">{currentItem ? 'Save' : 'Add'}</button></div></form>);
-        };
-        
-        const SiteManagementForm = ({ sites, onClose }) => {
-            const [newSite, setNewSite] = useState({ name: '', drPrefix: ''});
-            const handleAddSite = async (e) => {
-                e.preventDefault();
-                if (!newSite.name || !newSite.drPrefix) return alert("Site Name and DR Prefix are required.");
-                await db.collection(`artifacts/${appId}/public/data/sites`).add({ ...newSite, lastDrNumber: 0 });
-                setNewSite({ name: '', drPrefix: ''});
-            };
-            return (<div className="space-y-6"><h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2><form onSubmit={handleAddSite} className="flex gap-2 items-end"><div className="flex-grow"><label className="text-sm font-medium">Site Name</label><input type="text" value={newSite.name} onChange={e => setNewSite({...newSite, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div><div className="flex-grow"><label className="text-sm font-medium">DR Prefix (e.g., MNL)</label><input type="text" value={newSite.drPrefix} onChange={e => setNewSite({...newSite, drPrefix: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div><button type="submit" className="px-4 py-2 text-white bg-indigo-600 rounded-lg">Add</button></form><div className="border-t pt-4"><h3 className="font-bold mb-2">Existing Sites</h3><ul className="space-y-2">{sites.map(s => <li key={s.id} className="p-2 bg-gray-50 rounded-lg">{s.name} ({s.drPrefix})</li>)}</ul></div><div className="flex justify-end"><button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full mt-4">Done</button></div></div>);
-        };
-
-        // --- ALL OTHER COMPONENT DEFINITIONS ARE HERE... ---
-        
-        function App() {
-            const [user, setUser] = useState(null);
-            const [isAdminMode, setIsAdminMode] = useState(false);
-            const [inventory, setInventory] = useState([]);
-            const [sites, setSites] = useState([]);
-            const [receipts, setReceipts] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin' });
-            const [isLoading, setIsLoading] = useState(true);
-            const [isAuthReady, setIsAuthReady] = useState(false);
-            const [modal, setModal] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [itemToDelete, setItemToDelete] = useState(null);
+            const [isSaving, setIsSaving] = useState(false);
 
             useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
-                    if (authUser) {
-                        setUser(authUser);
-                    } else {
+                if (currentItem) {
+                    setItem(currentItem);
+                } else {
+                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+                }
+            }, [currentItem]);
+
+            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!item.name || !item.sku) {
+                    setNotification({type: 'error', message: 'SKU and Name are required.'});
+                    return;
+                }
+                setIsSaving(true);
+                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
+                setIsSaving(false);
+            };
+
+            return (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
+                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg bg-gray-100" readOnly /></div>
+                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                        <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    </div>
+                    { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                        <button type="submit" disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                           {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                           {isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
+                        </button>
+                    </div>
+                </form>
+            );
+        };
+        
+        const AdminLoginModal = ({ onLogin, setNotification }) => {
+            const [password, setPassword] = useState('');
+            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
+            return (
+                <Modal onClose={() => {}} size="sm">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <h2 className="text-2xl font-bold text-center text-gray-800">Admin Access</h2>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-600">Password</label>
+                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" autoFocus />
+                        </div>
+                        <button type="submit" className="w-full px-6 py-2 text-white bg-indigo-600 rounded-full hover:bg-indigo-700">Unlock</button>
+                    </form>
+                </Modal>
+            );
+        };
+        
+        const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
+            const [adjustment, setAdjustment] = useState(0);
+            const [isSaving, setIsSaving] = useState(false);
+
+            const handleSave = async () => {
+                if (adjustment === 0) {
+                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
+                     return;
+                }
+                setIsSaving(true);
+                await onAdjust(item, adjustment);
+                setIsSaving(false);
+            }
+
+            return (
+                 <Modal onClose={onClose} size="md">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
+                        <div>
+                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
+                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
+                           <input 
+                                type="number" 
+                                value={adjustment} 
+                                onChange={(e) => setAdjustment(Number(e.target.value))} 
+                                className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
+                                autoFocus
+                            />
+                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
+        const SettingsForm = ({ settings, onSave, onClose }) => {
+            const [localSettings, setLocalSettings] = useState(settings);
+            const [isSaving, setIsSaving] = useState(false);
+
+            const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+            const handleSave = async () => {
+                setIsSaving(true);
+                await onSave(localSettings);
+                setIsSaving(false);
+            };
+
+            return (
+                 <Modal onClose={onClose} size="lg">
+                    <div className="space-y-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
+                        <div>
+                           <label className="block text-sm font-medium">Admin Password</label>
+                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                        </div>
+                         <div>
+                           <label className="block text-sm font-medium">Default Reorder Level</label>
+                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4 border-t">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Saving...' : 'Save Settings'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
+        // --- Main App Component ---
+        function App() {
+            // --- State Declarations ---
+            const [user, setUser] = useState(null);
+            const [isAuthReady, setIsAuthReady] = useState(false);
+            const [isAdminMode, setIsAdminMode] = useState(false);
+            const [inventory, setInventory] = useState([]);
+            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10 });
+            const [isLoading, setIsLoading] = useState(true);
+            const [modal, setModal] = useState(null); // e.g., 'item', 'stock', 'admin_login'
+            const [notification, setNotification] = useState(null); // {type: 'success', message: 'It worked!'}
+            const [currentItem, setCurrentItem] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [itemToDelete, setItemToDelete] = useState(null); // {id, name}
+            
+            // --- Global App ID ---
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            // --- Firebase Initialization and Auth Effect ---
+            useEffect(() => {
+                const { initializeApp } = window.firebaseApp;
+                const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.firebaseAuth;
+                const { getFirestore } = window.firestore;
+                
+                // Use the provided firebase config if available
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_FALLBACK_KEY", projectId: "dlv-warehouse-tracker" /* ... more fallback keys */ };
+
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+                    if (!authUser) {
                         try {
-                            await auth.signInAnonymously();
+                            const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                            if(authToken) {
+                                await signInWithCustomToken(auth, authToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
                         } catch (e) {
-                            console.error("Anonymous sign-in failed", e);
+                            console.error("Sign-in failed", e);
+                            setNotification({type: 'error', message: `Authentication failed: ${e.message}`});
                         }
+                    } else {
+                         setUser(authUser);
                     }
                     setIsAuthReady(true);
                 });
                 return () => unsubscribe();
             }, []);
 
+            // --- Data Fetching Effect ---
             useEffect(() => {
-                if (!isAuthReady) return;
+                if (!isAuthReady || !db) return;
                 
+                setIsLoading(true);
                 const basePath = `artifacts/${appId}/public/data`;
+                const { collection, query, orderBy, onSnapshot, doc } = window.firestore;
                 
-                const unsubInv = db.collection(`${basePath}/inventory`).orderBy('name').onSnapshot(snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubSites = db.collection(`${basePath}/sites`).orderBy('name').onSnapshot(snap => setSites(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubSettings = db.doc(`${basePath}/settings/general`).onSnapshot((d) => { if (d.exists) { setSettings(s => ({...s, ...d.data()})); } });
-                const unsubReceipts = db.collection(`${basePath}/deliveryReceipts`).orderBy('createdAt', 'desc').onSnapshot(snap => setReceipts(snap.docs.map(d => ({id:d.id, ...d.data()}))));
-                
+                const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), 
+                    snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    err => console.error("Inventory snapshot error:", err));
+                    
+                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), 
+                    (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
+                    err => console.error("Settings snapshot error:", err));
+
                 setIsLoading(false);
-                return () => { unsubInv(); unsubSites(); unsubSettings(); unsubReceipts(); };
-            }, [isAuthReady]);
+                return () => { unsubInv(); unsubSettings(); };
+            }, [isAuthReady, appId]);
 
-            const handleSaveItem = async (item) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const itemToSave = { ...item, createdAt: currentItem?.id ? item.createdAt : firebase.firestore.FieldValue.serverTimestamp() };
+            // --- Helper to log actions ---
+             const logAction = async (action, details) => {
+                const { collection, addDoc, serverTimestamp } = window.firestore;
                 try {
-                    if (currentItem?.id) { await db.collection(path).doc(currentItem.id).update(itemToSave); } 
-                    else { await db.collection(path).add(itemToSave); }
-                    await logAction(isAdminMode ? 'Admin' : 'User', currentItem?.id ? 'Item Updated' : 'Item Added', `${item.name} (${item.sku})`);
-                    setModal(null); setCurrentItem(null);
-                } catch (e) { console.error("Save error:", e); }
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
+                        timestamp: serverTimestamp(), 
+                        action, 
+                        details, 
+                        user: isAdminMode ? 'Admin' : 'User' 
+                    });
+                } catch (error) {
+                    console.error("Failed to log action:", error);
+                }
+            };
+            
+            // --- CRUD Handlers ---
+            const handleSaveItem = async (itemData) => {
+                const { collection, doc, addDoc, updateDoc, serverTimestamp } = window.firestore;
+                const path = `artifacts/${appId}/public/data/inventory`;
+                const isEditing = !!currentItem?.id;
+
+                try {
+                    if (isEditing) {
+                        const itemRef = doc(db, path, currentItem.id);
+                        await updateDoc(itemRef, { ...itemData, updatedAt: serverTimestamp() });
+                        await logAction('Item Updated', `${itemData.name} (${itemData.sku})`);
+                        setNotification({type: 'success', message: 'Item updated successfully!'});
+                    } else {
+                        await addDoc(collection(db, path), { ...itemData, createdAt: serverTimestamp() });
+                        await logAction('Item Added', `${itemData.name} (${itemData.sku})`);
+                        setNotification({type: 'success', message: 'New item added to inventory!'});
+                    }
+                    closeModal();
+                } catch (e) {
+                    console.error("Save error:", e);
+                    setNotification({type: 'error', message: `Failed to save item: ${e.message}`});
+                }
             };
 
-            const confirmDeleteItem = (id) => setItemToDelete(id);
-            const handleDeleteItem = async () => { /* ... */ };
-            const handleAdjustStock = async (item, adjustment) => { /* ... */ };
-            const handleAdminLogin = (password) => {
-                 if(password === settings.adminPass) { setIsAdminMode(true); setModal(null); } 
-                else { alert('Incorrect admin password.'); }
+            const confirmDeleteItem = (id, name) => setItemToDelete({ id, name });
+            
+            const handleDeleteItem = async () => {
+                if (!itemToDelete) return;
+                const { doc, deleteDoc } = window.firestore;
+                const path = `artifacts/${appId}/public/data/inventory`;
+                try {
+                    await deleteDoc(doc(db, path, itemToDelete.id));
+                    await logAction('Item Deleted', `Deleted item "${itemToDelete.name}"`);
+                    setNotification({type: 'success', message: 'Item successfully deleted.'});
+                } catch (e) {
+                    console.error("Delete error:", e);
+                    setNotification({type: 'error', message: `Failed to delete item: ${e.message}`});
+                } finally {
+                    setItemToDelete(null); // Close confirmation modal
+                }
             };
-            const openModal = (type, item = null) => { setCurrentItem(item); setModal(type); };
+
+            const handleAdjustStock = async (item, adjustment) => {
+                const { doc, updateDoc, increment } = window.firestore;
+                const path = `artifacts/${appId}/public/data/inventory`;
+                const newQty = item.qty + adjustment;
+                if (newQty < 0) {
+                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."});
+                     return;
+                }
+                try {
+                    const itemRef = doc(db, path, item.id);
+                    await updateDoc(itemRef, { qty: increment(adjustment) });
+                    await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
+                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
+                    closeModal();
+                } catch (e) {
+                    console.error("Stock adjustment error:", e);
+                    setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`});
+                }
+            };
             
-            const filteredInventory = inventory.filter(item => (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()));
+            const handleSaveSettings = async (newSettings) => {
+                const { doc, setDoc } = window.firestore;
+                const path = `artifacts/${appId}/public/data/settings`;
+                 try {
+                    await setDoc(doc(db, path, 'general'), newSettings);
+                    await logAction('Settings Updated', 'Admin password or reorder level changed.');
+                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    closeModal();
+                } catch (e) {
+                     console.error("Settings save error:", e);
+                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                }
+            };
+
+            // --- Auth & Modal Handlers ---
+            const handleAdminLogin = (password) => {
+                if (password === settings.adminPass) {
+                    setIsAdminMode(true);
+                    closeModal();
+                    setNotification({type: 'success', message: 'Admin mode unlocked!'});
+                } else {
+                    setNotification({type: 'error', message: 'Incorrect admin password.'});
+                }
+            };
             
-            if (!isAuthReady || !user || isLoading) return <Spinner />;
+            const openModal = (type, item = null) => {
+                setCurrentItem(item);
+                setModal(type);
+            };
+
+            const closeModal = () => {
+                setModal(null);
+                setCurrentItem(null);
+            };
+
+            // --- Render Logic ---
+            if (!isAuthReady || !user) return <Spinner text="Authenticating..." />;
+            
+            const filteredInventory = inventory.filter(item => 
+                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+            );
 
             return (
                 <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
                     <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); body { font-family: 'Poppins', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards}@media print{body *{visibility:hidden}.printable-area,.printable-area *{visibility:visible}.printable-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none}}`}</style>
+                    
                     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
                         <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
-                            <div><h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1><p className="text-gray-500 mt-1">Logged in as: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator" : "User"}</span></p></div>
+                            <div>
+                                <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
+                                <p className="text-gray-500 mt-1">
+                                  Status: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator Mode" : "User Mode"}</span>
+                                </p>
+                            </div>
                             <div className="flex items-center gap-2 flex-wrap">
-                                 <button onClick={() => openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Admin Access">🛡️</button>
-                                 {isAdminMode && <button onClick={() => openModal('sites')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Sites</button>}
-                                 {isAdminMode && <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">⚙️ Settings</button>}
-                                 <button onClick={() => openModal('reports')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📊 Reports</button>
-                                 <button onClick={() => openModal('dr_history')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">View Receipts</button>
-                                 <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md">🧾 Create Receipt</button>
-                                 {isAdminMode && <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md">➕ Add Item</button>}
+                                 <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
+                                    {isAdminMode ? '🔓' : '🛡️'}
+                                </button>
+                                {isAdminMode && <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>}
+                                {isAdminMode && <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md">➕ Add Item</button>}
                             </div>
                         </header>
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-3"><StatsWidget inventory={filteredInventory} /></div>
-                            <LogsWidget isLoading={isLoading} />
-                            <AllInventoryWidget inventory={filteredInventory} onEdit={(item) => openModal('item', item)} onDelete={confirmDeleteItem} onAdjustStock={(item) => openModal('stock', item)} isLoading={isLoading} searchTerm={searchTerm} setSearchTerm={setSearchTerm} isAdminMode={isAdminMode} settings={settings} />
-                        </div>
+                            <LogsWidget isLoading={isLoading} appId={appId} />
+                            <AllInventoryWidget 
+                                inventory={inventory}
+                                onEdit={(item) => openModal('item', item)} 
+                                onDelete={confirmDeleteItem} 
+                                onAdjustStock={(item) => openModal('stock', item)} 
+                                isLoading={isLoading} 
+                                searchTerm={searchTerm} 
+                                setSearchTerm={setSearchTerm} 
+                                isAdminMode={isAdminMode}
+                                settings={settings} 
+                            />
+                        </main>
                     </div>
-                     {modal === 'item' && <Modal onClose={() => setModal(null)} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={() => setModal(null)} /></Modal>}
-                     {/* All other modals go here */}
+
+                    {/* --- Modals Layer --- */}
+                    {notification && <NotificationModal message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
+                    
+                    <ConfirmationModal 
+                        isOpen={!!itemToDelete}
+                        onClose={() => setItemToDelete(null)}
+                        onConfirm={handleDeleteItem}
+                        message={`Are you sure you want to permanently delete "${itemToDelete?.name}"? This action cannot be undone.`}
+                    />
+
+                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
+                    {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} setNotification={setNotification} />}
+                    {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
+
                 </div>
             );
         }
