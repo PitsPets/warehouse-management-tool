@@ -411,6 +411,199 @@
             );
         };
         
+        const DeliveryReceiptForm = ({ inventory, sites, onSave, onClose, setNotification }) => {
+            const [siteId, setSiteId] = useState('');
+            const [customerName, setCustomerName] = useState('');
+            const [address, setAddress] = useState('');
+            const [remarks, setRemarks] = useState('');
+            const [items, setItems] = useState([]);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isSaving, setIsSaving] = useState(false);
+
+            const searchResults = searchTerm 
+                ? inventory.filter(i => (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase())) && !items.find(added => added.id === i.id))
+                : [];
+            
+            const addItem = (item) => {
+                if(items.find(i => i.id === item.id)) return;
+                setItems([...items, { ...item, dispatchQty: 1 }]);
+                setSearchTerm('');
+            };
+
+            const updateItemQty = (id, qty) => {
+                const inventoryItem = inventory.find(i => i.id === id);
+                const newQty = Math.max(0, Number(qty));
+                if (newQty > inventoryItem.qty) {
+                    setNotification({type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.`});
+                    return;
+                }
+                setItems(items.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+            };
+
+            const removeItem = (id) => setItems(items.filter(i => i.id !== id));
+            
+            const handleSave = async () => {
+                if (!siteId) { setNotification({type: 'error', message: 'Please select a site.'}); return; }
+                if (items.length === 0) { setNotification({type: 'error', message: 'Please add at least one item to the receipt.'}); return; }
+                
+                setIsSaving(true);
+                const receiptData = { siteId, customerName, address, remarks, items };
+                await onSave(receiptData);
+                setIsSaving(false);
+            };
+
+            return (
+                <Modal onClose={onClose} size="5xl">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                <option value="">-- Select Site --</option>
+                                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                             <input type="text" placeholder="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                        </div>
+
+                        <div className="border-t pt-4">
+                            <div className="relative">
+                                <label className="block text-sm font-medium">Add Items to Receipt</label>
+                                <input type="text" placeholder="Search by SKU or name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                                {searchResults.length > 0 && (
+                                    <ul className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                        {searchResults.map(i => <li key={i.id} onClick={() => addItem(i)} className="p-2 hover:bg-indigo-100 cursor-pointer">{i.name} ({i.sku}) - Stock: {i.qty}</li>)}
+                                    </ul>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="h-64 overflow-y-auto border rounded-lg">
+                             <table className="w-full text-left">
+                                <thead className="sticky top-0 bg-gray-50"><tr><th className="p-2">SKU</th><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                <tbody>
+                                    {items.length > 0 ? items.map(item => (
+                                        <tr key={item.id} className="border-b">
+                                            <td className="p-2 text-xs">{item.sku}</td>
+                                            <td className="p-2">{item.name}</td>
+                                            <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateItemQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500">X</button></td>
+                                        </tr>
+                                    )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex justify-end gap-4 pt-4 border-t">
+                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                             <button onClick={handleSave} disabled={isSaving || items.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                {isSaving ? 'Saving...' : 'Save Receipt'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
+        const ReceiptHistoryModal = ({ receipts, onClose, openDetailView }) => {
+            return (
+                 <Modal onClose={onClose} size="5xl">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Delivery Receipt History</h2>
+                         <div className="h-[60vh] overflow-y-auto border rounded-lg">
+                            <table className="w-full text-left">
+                                <thead className="sticky top-0 bg-gray-50"><tr><th className="p-3">DR #</th><th className="p-3">Date</th><th className="p-3">Site</th><th className="p-3">Customer</th><th className="p-3">Items</th><th className="p-3"></th></tr></thead>
+                                <tbody>
+                                    {receipts.map(r => (
+                                        <tr key={r.id} className="border-b hover:bg-gray-50">
+                                            <td className="p-3 font-mono">{r.drNumber}</td>
+                                            <td className="p-3">{r.createdAt?.toDate().toLocaleDateString()}</td>
+                                            <td className="p-3">{r.siteName}</td>
+                                            <td className="p-3">{r.customerName}</td>
+                                            <td className="p-3">{r.items.length}</td>
+                                            <td className="p-3 text-right"><button onClick={() => openDetailView(r)} className="text-indigo-600 hover:underline">View</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </Modal>
+            )
+        };
+        
+        const ReceiptDetailView = ({ receipt, onClose }) => {
+            const printContent = () => {
+                window.print();
+            };
+            const totalValue = receipt.items.reduce((sum, item) => sum + (item.dispatchQty * item.price), 0);
+
+            return (
+                <Modal onClose={onClose} size="3xl">
+                    <div className="printable-area space-y-6 p-4">
+                        <div className="text-center">
+                            <h2 className="text-2xl font-bold">DELIVERY RECEIPT</h2>
+                            <p className="text-lg font-mono text-red-600">{receipt.drNumber}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                             <div className="space-y-1">
+                                <p><span className="font-bold">Customer:</span> {receipt.customerName || 'N/A'}</p>
+                                <p><span className="font-bold">Address:</span> {receipt.address || 'N/A'}</p>
+                             </div>
+                             <div className="space-y-1 text-right">
+                                 <p><span className="font-bold">Date:</span> {receipt.createdAt?.toDate().toLocaleDateString()}</p>
+                                 <p><span className="font-bold">Site:</span> {receipt.siteName}</p>
+                             </div>
+                        </div>
+
+                         <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-100">
+                                <tr>
+                                    <th className="p-2">Qty</th>
+                                    <th className="p-2">Unit</th>
+                                    <th className="p-2">Description</th>
+                                    <th className="p-2 text-right">Unit Price</th>
+                                    <th className="p-2 text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {receipt.items.map(item => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2">{item.dispatchQty}</td>
+                                        <td className="p-2">pcs</td>
+                                        <td className="p-2">({item.sku}) {item.name}</td>
+                                        <td className="p-2 text-right">{formatCurrency(item.price)}</td>
+                                        <td className="p-2 text-right">{formatCurrency(item.dispatchQty * item.price)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="font-bold">
+                                <tr>
+                                    <td colSpan="4" className="p-2 text-right">Total Value:</td>
+                                    <td className="p-2 text-right">{formatCurrency(totalValue)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        {receipt.remarks && <div className="pt-4"><p className="text-sm"><span className="font-bold">Remarks:</span> {receipt.remarks}</p></div>}
+                        
+                         <div className="pt-12 grid grid-cols-2 gap-8 text-center text-sm">
+                            <div>
+                                <p className="border-t pt-2">Received by / Date</p>
+                            </div>
+                            <div>
+                                <p className="border-t pt-2">Issued by</p>
+                            </div>
+                        </div>
+                    </div>
+                     <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                    </div>
+                </Modal>
+            )
+        };
+
         // --- Main App Component ---
         function App() {
             // --- State Declarations ---
@@ -424,7 +617,7 @@
             const [isLoading, setIsLoading] = useState(true);
             const [modal, setModal] = useState(null);
             const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null);
+            const [currentItem, setCurrentItem] = useState(null); // Used for item forms, stock adjustments, and receipt details
             const [searchTerm, setSearchTerm] = useState('');
             const [itemToDelete, setItemToDelete] = useState(null);
             
@@ -503,19 +696,6 @@
                 return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubSettings(); };
             }, [isAuthReady, user, appId]);
             
-            // --- Handlers for Site Management ---
-            const handleAddSite = async (newSite) => {
-                const path = `artifacts/${appId}/public/data/sites`;
-                 try {
-                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
-                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
-                    await logAction('Site Added', `New site created: ${newSite.name}`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
-                }
-            };
-            
-
             // --- Helper to log actions ---
              const logAction = async (action, details) => {
                 if(!db) return;
@@ -528,6 +708,62 @@
                     });
                 } catch (error) {
                     console.error("Failed to log action:", error);
+                }
+            };
+
+            // --- Business Logic Handlers ---
+            const handleAddSite = async (newSite) => {
+                const path = `artifacts/${appId}/public/data/sites`;
+                 try {
+                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
+                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
+                    await logAction('Site Added', `New site created: ${newSite.name}`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
+                }
+            };
+
+            const handleSaveReceipt = async (receiptData) => {
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
+                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
+
+                try {
+                    await runTransaction(db, async (transaction) => {
+                        const siteDoc = await transaction.get(siteRef);
+                        if (!siteDoc.exists()) throw "Selected site does not exist.";
+
+                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
+                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
+
+                        // Check stock and prepare inventory updates
+                        for (const item of receiptData.items) {
+                            const invItemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
+                            const invItemDoc = await transaction.get(invItemRef);
+                            if (!invItemDoc.exists() || invItemDoc.data().qty < item.dispatchQty) {
+                                throw `Insufficient stock for ${item.name}. Available: ${invItemDoc.data().qty}, Required: ${item.dispatchQty}.`;
+                            }
+                            transaction.update(invItemRef, { qty: increment(-item.dispatchQty) });
+                        }
+
+                        // Create the receipt
+                        transaction.set(doc(receiptsCollectionRef), {
+                            ...receiptData,
+                            drNumber: drNumberString,
+                            siteName: siteDoc.data().name,
+                            createdAt: serverTimestamp()
+                        });
+                        
+                        // Update the site's DR number
+                        transaction.update(siteRef, { lastDrNumber: increment(1) });
+                    });
+                    
+                    setNotification({ type: 'success', message: 'Delivery receipt saved successfully!'});
+                    await logAction('Receipt Created', `DR for site ${receiptData.siteId} saved.`);
+                    closeModal();
+
+                } catch (error) {
+                    console.error("Receipt save transaction failed: ", error);
+                    setNotification({ type: 'error', message: `Failed to save receipt: ${error}` });
                 }
             };
             
@@ -683,6 +919,10 @@
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} setNotification={setNotification} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
+                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'dr_history' && <ReceiptHistoryModal receipts={receipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} />}
+                    {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} />}
+
 
                 </div>
             );
