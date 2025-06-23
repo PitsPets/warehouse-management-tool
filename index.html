@@ -12,7 +12,8 @@
     <!-- Use the latest modular Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        window.firebaseApp = initializeApp;
+        // Correctly wrap the function in an object for consistent access
+        window.firebaseApp = { initializeApp };
         
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         window.firebaseAuth = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
@@ -452,7 +453,9 @@
                     (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
                     err => console.error("Settings snapshot error:", err));
 
-                setIsLoading(false);
+                const allDataLoaded = Promise.all([unsubInv, unsubSettings]);
+                allDataLoaded.then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+
                 return () => { unsubInv(); unsubSettings(); };
             }, [isAuthReady, user, appId]);
 
