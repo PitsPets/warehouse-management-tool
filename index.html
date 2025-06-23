@@ -48,7 +48,7 @@
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300 animate-scale-in">
                     <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300`}>
-                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10" aria-label="Close modal">
+                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
                         {children}
@@ -365,6 +365,51 @@
                 </Modal>
             );
         };
+
+        const SiteManagementForm = ({ sites, onAddSite, onClose }) => {
+            const [newSite, setNewSite] = useState({ name: '', drPrefix: ''});
+            const [isSaving, setIsSaving] = useState(false);
+
+            const handleAdd = async (e) => {
+                e.preventDefault();
+                if (!newSite.name || !newSite.drPrefix) {
+                    alert("Site Name and DR Prefix are required.");
+                    return;
+                }
+                setIsSaving(true);
+                await onAddSite(newSite);
+                setNewSite({ name: '', drPrefix: ''});
+                setIsSaving(false);
+            };
+
+            return (
+                <Modal onClose={onClose} size="lg">
+                    <div className="space-y-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
+                        <form onSubmit={handleAdd} className="flex gap-2 items-end p-4 border rounded-lg bg-gray-50">
+                            <div className="flex-grow">
+                                <label className="text-sm font-medium">New Site Name</label>
+                                <input type="text" value={newSite.name} onChange={e => setNewSite({...newSite, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
+                            </div>
+                            <div className="flex-grow">
+                                <label className="text-sm font-medium">DR Prefix (e.g., MNL)</label>
+                                <input type="text" value={newSite.drPrefix} onChange={e => setNewSite({...newSite, drPrefix: e.target.value.toUpperCase()})} className="w-full px-3 py-2 border rounded-lg" />
+                            </div>
+                            <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">{isSaving ? '...' : 'Add'}</button>
+                        </form>
+                        <div className="border-t pt-4">
+                            <h3 className="font-bold mb-2">Existing Sites</h3>
+                            <ul className="space-y-2 h-48 overflow-y-auto">
+                                {sites.length > 0 ? sites.map(s => <li key={s.id} className="p-3 bg-gray-100 rounded-lg flex justify-between"><span>{s.name}</span> <span className="font-mono text-gray-500">{s.drPrefix} / DR #{s.lastDrNumber}</span></li>) : <p className="text-gray-500">No sites configured.</p>}
+                            </ul>
+                        </div>
+                        <div className="flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full mt-4">Done</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
         
         // --- Main App Component ---
         function App() {
@@ -373,6 +418,8 @@
             const [isAuthReady, setIsAuthReady] = useState(false);
             const [isAdminMode, setIsAdminMode] = useState(false);
             const [inventory, setInventory] = useState([]);
+            const [sites, setSites] = useState([]);
+            const [receipts, setReceipts] = useState([]);
             const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10 });
             const [isLoading, setIsLoading] = useState(true);
             const [modal, setModal] = useState(null);
@@ -439,16 +486,35 @@
                     snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
                     err => console.error("Inventory snapshot error:", err));
                     
+                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')),
+                    snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))),
+                    err => console.error("Sites snapshot error:", err));
+
+                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')),
+                    snap => setReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))),
+                    err => console.error("Receipts snapshot error:", err));
+                    
                 const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), 
                     (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
                     err => console.error("Settings snapshot error:", err));
 
-                // Since listeners are async, we can set loading to false immediately.
-                // The UI will update reactively as data arrives.
                 setIsLoading(false);
 
-                return () => { unsubInv(); unsubSettings(); };
+                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubSettings(); };
             }, [isAuthReady, user, appId]);
+            
+            // --- Handlers for Site Management ---
+            const handleAddSite = async (newSite) => {
+                const path = `artifacts/${appId}/public/data/sites`;
+                 try {
+                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
+                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
+                    await logAction('Site Added', `New site created: ${newSite.name}`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
+                }
+            };
+            
 
             // --- Helper to log actions ---
              const logAction = async (action, details) => {
@@ -563,10 +629,10 @@
             
             return (
                 <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
-                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); body { font-family: 'Poppins', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards}@media print{body *{visibility:hidden}.printable-area,.printable-area *{visibility:visible}.printable-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none}}`}</style>
+                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); body { font-family: 'Poppins', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden}.printable-area,.printable-area *{visibility:visible}.printable-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none}}`}</style>
                     
                     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-                        <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
+                        <header className="flex flex-wrap justify-between items-center gap-4 mb-8 no-print">
                             <div>
                                 <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
                                 <p className="text-gray-500 mt-1">
@@ -577,7 +643,10 @@
                                  <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
                                     {isAdminMode ? '🔓' : '🛡️'}
                                 </button>
+                                {isAdminMode && <button onClick={() => openModal('sites')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Sites</button>}
                                 {isAdminMode && <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>}
+                                <button onClick={() => openModal('dr_history')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">View Receipts</button>
+                                <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md">🧾 Create Receipt</button>
                                 {isAdminMode && <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md">➕ Add Item</button>}
                             </div>
                         </header>
@@ -613,6 +682,7 @@
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} setNotification={setNotification} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
+                    {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
 
                 </div>
             );
