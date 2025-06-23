@@ -9,17 +9,13 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Use the latest modular Firebase SDK -->
+    <!-- Use the latest modular Firebase SDK and attach functions directly to window -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        // Correctly wrap the function in an object for consistent access
-        window.firebaseApp = { initializeApp };
-        
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        window.firebaseAuth = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
-
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.firestore = { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction };
+        import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
+        import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
+        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
     </script>
 
     <!-- PDF & Charting Libraries -->
@@ -195,7 +191,6 @@
             const [logs, setLogs] = useState([]);
             useEffect(() => {
                 if (!db || !appId) return;
-                const { collection, query, orderBy, onSnapshot } = window.firestore;
                 const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
                 const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
                     (error) => console.error("Error fetching logs:", error));
@@ -392,10 +387,6 @@
             // --- Firebase Initialization and Auth Effect ---
             useEffect(() => {
                 try {
-                    const { initializeApp } = window.firebaseApp;
-                    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.firebaseAuth;
-                    const { getFirestore } = window.firestore;
-                    
                     const firebaseConfig = typeof __firebase_config !== 'undefined' 
                         ? JSON.parse(__firebase_config) 
                         : { 
@@ -407,7 +398,7 @@
                             appId: "1:267729758583:web:f5f7ca26afc99c17819972",
                             measurementId: "G-1DH9GT5RXS"
                           };
-
+                    
                     const app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
@@ -433,17 +424,16 @@
                 } catch (e) {
                     console.error("CRITICAL: Firebase initialization failed.", e);
                     setNotification({ type: 'error', message: 'Failed to initialize backend services. App cannot function.' });
-                    setIsAuthReady(true); // Set to true to hide the spinner and show the error.
+                    setIsAuthReady(true); 
                 }
             }, []);
 
             // --- Data Fetching Effect ---
             useEffect(() => {
-                if (!isAuthReady || !user) return; // Only fetch data when ready and logged in
+                if (!isAuthReady || !user) return; 
                 
                 setIsLoading(true);
                 const basePath = `artifacts/${appId}/public/data`;
-                const { collection, query, orderBy, onSnapshot, doc } = window.firestore;
                 
                 const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), 
                     snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
@@ -453,8 +443,9 @@
                     (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
                     err => console.error("Settings snapshot error:", err));
 
-                const allDataLoaded = Promise.all([unsubInv, unsubSettings]);
-                allDataLoaded.then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+                // Since listeners are async, we can set loading to false immediately.
+                // The UI will update reactively as data arrives.
+                setIsLoading(false);
 
                 return () => { unsubInv(); unsubSettings(); };
             }, [isAuthReady, user, appId]);
@@ -462,7 +453,6 @@
             // --- Helper to log actions ---
              const logAction = async (action, details) => {
                 if(!db) return;
-                const { collection, addDoc, serverTimestamp } = window.firestore;
                 try {
                     await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
                         timestamp: serverTimestamp(), 
@@ -477,7 +467,6 @@
             
             // --- CRUD Handlers ---
             const handleSaveItem = async (itemData) => {
-                const { collection, doc, addDoc, updateDoc, serverTimestamp } = window.firestore;
                 const path = `artifacts/${appId}/public/data/inventory`;
                 const isEditing = !!currentItem?.id;
 
@@ -503,7 +492,6 @@
             
             const handleDeleteItem = async () => {
                 if (!itemToDelete) return;
-                const { doc, deleteDoc } = window.firestore;
                 const path = `artifacts/${appId}/public/data/inventory`;
                 try {
                     await deleteDoc(doc(db, path, itemToDelete.id));
@@ -518,7 +506,6 @@
             };
 
             const handleAdjustStock = async (item, adjustment) => {
-                const { doc, updateDoc, increment } = window.firestore;
                 const path = `artifacts/${appId}/public/data/inventory`;
                 const newQty = item.qty + adjustment;
                 if (newQty < 0) {
@@ -538,7 +525,6 @@
             };
             
             const handleSaveSettings = async (newSettings) => {
-                const { doc, setDoc } = window.firestore;
                 const path = `artifacts/${appId}/public/data/settings`;
                  try {
                     await setDoc(doc(db, path, 'general'), newSettings);
