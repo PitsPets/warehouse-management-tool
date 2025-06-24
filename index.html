@@ -9,28 +9,37 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Use the latest modular Firebase SDK and attach functions directly to window -->
+    <!-- Google Fonts: Inter -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+
+    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
         import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
         import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+        window.getStorage=getStorage; window.ref=ref; window.uploadBytes=uploadBytes; window.getDownloadURL=getDownloadURL;
     </script>
 
     <!-- PDF & Charting Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
 </head>
-<body>
+<body class="antialiased bg-gray-100">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
         // --- Firebase Globals (initialized in App component) ---
-        let db, auth;
+        let db, auth, storage;
 
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
@@ -38,7 +47,7 @@
         // --- UI Components ---
         const Spinner = ({ text = "Loading..." }) => (
             <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 z-[999]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                 <p className="mt-4 text-gray-500">{text}</p>
             </div>
         );
@@ -96,519 +105,46 @@
         };
         
         // --- Widget & Form Components ---
-
-        const StatsWidget = ({ inventory }) => {
-            const totalItems = inventory.length;
-            const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-            const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
-            const stats = [
-                { name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
-                { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
-                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
-            ];
-            return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {stats.map(stat => (
-                            <div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                                <div className="text-2xl">{stat.icon}</div>
-                                <div>
-                                    <p className="text-sm text-gray-500">{stat.name}</p>
-                                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        };
-
-        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
-            const filteredInventory = inventory.filter(item => 
-                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-            );
+        const DashboardCards = ({ inventory, receipts }) => {
+            const totalListedItems = inventory.length;
+            const totalWarehouseValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+            const totalItemsOut = receipts.reduce((sum, receipt) => sum + receipt.items.reduce((itemSum, item) => itemSum + item.dispatchQty, 0), 0);
 
             return (
-                <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
-                    <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
-                        <div className="relative w-full sm:w-64">
-                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        </div>
+                <main className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
+                        <p className="text-lg text-gray-500 mb-2">Total Listed Items</p>
+                        <p className="text-5xl font-extrabold text-blue-600">{totalListedItems}</p>
                     </div>
-                    {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="overflow-x-auto -mx-6">
-                            <table className="w-full text-left table-auto">
-                                <thead>
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) < reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-red-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-1">
-                                                        {isAdminMode && <>
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
-                                                        </>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        )
-                                    }) : (
-                                        <tr><td colSpan="5" className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
+                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
+                         <p className="text-lg text-gray-500 mb-2">Total Items Out</p>
+                         <p className="text-5xl font-extrabold text-red-600">{totalItemsOut}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
+                         <p className="text-lg text-gray-500 mb-2">Total Warehouse Value</p>
+                         <p className="text-4xl font-extrabold text-green-600">{formatCurrency(totalWarehouseValue)}</p>
+                    </div>
+                </main>
             );
         };
         
-        const LogsWidget = ({ isLoading, appId }) => {
-            const [logs, setLogs] = useState([]);
-            useEffect(() => {
-                if (!db || !appId) return;
-                const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
-                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
-                    (error) => console.error("Error fetching logs:", error));
-                return () => unsub();
-            }, [appId]);
+        const LowStockNotification = ({ inventory, settings, onClick }) => {
+            const lowStockItems = inventory.filter(item => Number(item.qty) <= Number(item.reorderLevel || settings.reorderLevel));
+            if (lowStockItems.length === 0) return null;
 
             return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Activity Logs</h3>
-                    {isLoading ? <Spinner text="Loading logs..." /> : logs.length > 0 ? (
-                        <ul className="space-y-3 h-64 overflow-y-auto pr-2">
-                            {logs.map(log => (
-                                <li key={log.id} className="text-sm">
-                                    <p className="font-medium text-gray-700">
-                                        {log.action} by <span className="text-indigo-600">{log.user || 'System'}</span>: <span className="font-normal text-gray-600">{log.details}</span>
-                                    </p>
-                                    <p className="text-xs text-gray-400">{log.timestamp?.toDate().toLocaleString()}</p>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}
-                </div>
-            );
-        };
-
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
-            const [isSaving, setIsSaving] = useState(false);
-
-            useEffect(() => {
-                if (currentItem) {
-                    setItem(currentItem);
-                } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
-                }
-            }, [currentItem]);
-
-            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
-            
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!item.name || !item.sku) {
-                    setNotification({type: 'error', message: 'SKU and Name are required.'});
-                    return;
-                }
-                setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
-            };
-
-            return (
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
-                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg bg-gray-100" readOnly /></div>
-                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+                <section onClick={onClick} className="bg-yellow-500 text-white p-5 rounded-xl shadow-lg flex items-center justify-between cursor-pointer transform transition-transform duration-200 hover:scale-[1.01] mb-6">
+                    <div className="flex items-center">
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mr-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.542 2.705-1.542 3.47 0l5.58 11.25c.38 .766-.117 1.655-.954 1.655H3.24c-.837 0-1.334-.889-.954-1.655L8.257 3.099zM10 7a1 1 0 011 1v4a1 1 0 11-2 0V8a1 1 0 011-1zm1 9a1 1 0 10-2 0 1 1 0 002 0z" clipRule="evenodd" />
+                         </svg>
+                         <span className="text-2xl font-semibold">{`Attention: ${lowStockItems.length} item(s) are low in stock!`}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
-                    </div>
-                    { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
-                    <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                        <button type="submit" disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                           {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                           {isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
-                        </button>
-                    </div>
-                </form>
+                    <span className="text-3xl font-bold rounded-full bg-yellow-600 px-4 py-2">{lowStockItems.length}</span>
+                </section>
             );
         };
         
-        const AdminLoginModal = ({ onLogin }) => {
-            const [password, setPassword] = useState('');
-            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
-            return (
-                <Modal onClose={() => {}} size="sm">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <h2 className="text-2xl font-bold text-center text-gray-800">Admin Access</h2>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-600">Password</label>
-                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" autoFocus />
-                        </div>
-                        <button type="submit" className="w-full px-6 py-2 text-white bg-indigo-600 rounded-full hover:bg-indigo-700">Unlock</button>
-                    </form>
-                </Modal>
-            );
-        };
-        
-        const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
-            const [adjustment, setAdjustment] = useState(0);
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleSave = async () => {
-                if (adjustment === 0) {
-                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
-                     return;
-                }
-                setIsSaving(true);
-                await onAdjust(item, adjustment);
-                setIsSaving(false);
-            }
-
-            return (
-                 <Modal onClose={onClose} size="md">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
-                        <div>
-                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
-                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
-                        </div>
-                        <div>
-                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                           <input 
-                                type="number" 
-                                value={adjustment} 
-                                onChange={(e) => setAdjustment(Number(e.target.value))} 
-                                className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                                autoFocus
-                            />
-                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
-                        </div>
-                        <div className="flex justify-end gap-4 pt-4">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
-                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        const SettingsForm = ({ settings, onSave, onClose }) => {
-            const [localSettings, setLocalSettings] = useState(settings);
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
-
-            const handleSave = async () => {
-                setIsSaving(true);
-                await onSave(localSettings);
-                setIsSaving(false);
-            };
-
-            return (
-                 <Modal onClose={onClose} size="lg">
-                    <div className="space-y-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                        <div>
-                           <label className="block text-sm font-medium">Admin Password</label>
-                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
-                        </div>
-                         <div>
-                           <label className="block text-sm font-medium">Default Reorder Level</label>
-                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
-                        </div>
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                {isSaving ? 'Saving...' : 'Save Settings'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-
-        const SiteManagementForm = ({ sites, onAddSite, onClose }) => {
-            const [newSite, setNewSite] = useState({ name: '', drPrefix: ''});
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleAdd = async (e) => {
-                e.preventDefault();
-                if (!newSite.name || !newSite.drPrefix) {
-                    alert("Site Name and DR Prefix are required.");
-                    return;
-                }
-                setIsSaving(true);
-                await onAddSite(newSite);
-                setNewSite({ name: '', drPrefix: ''});
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="lg">
-                    <div className="space-y-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
-                        <form onSubmit={handleAdd} className="flex gap-2 items-end p-4 border rounded-lg bg-gray-50">
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">New Site Name</label>
-                                <input type="text" value={newSite.name} onChange={e => setNewSite({...newSite, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
-                            </div>
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">DR Prefix (e.g., MNL)</label>
-                                <input type="text" value={newSite.drPrefix} onChange={e => setNewSite({...newSite, drPrefix: e.target.value.toUpperCase()})} className="w-full px-3 py-2 border rounded-lg" />
-                            </div>
-                            <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">{isSaving ? '...' : 'Add'}</button>
-                        </form>
-                        <div className="border-t pt-4">
-                            <h3 className="font-bold mb-2">Existing Sites</h3>
-                            <ul className="space-y-2 h-48 overflow-y-auto">
-                                {sites.length > 0 ? sites.map(s => <li key={s.id} className="p-3 bg-gray-100 rounded-lg flex justify-between"><span>{s.name}</span> <span className="font-mono text-gray-500">{s.drPrefix} / DR #{s.lastDrNumber}</span></li>) : <p className="text-gray-500">No sites configured.</p>}
-                            </ul>
-                        </div>
-                        <div className="flex justify-end">
-                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full mt-4">Done</button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        const DeliveryReceiptForm = ({ inventory, sites, onSave, onClose, setNotification }) => {
-            const [siteId, setSiteId] = useState('');
-            const [customerName, setCustomerName] = useState('');
-            const [address, setAddress] = useState('');
-            const [remarks, setRemarks] = useState('');
-            const [items, setItems] = useState([]);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [isSaving, setIsSaving] = useState(false);
-
-            const searchResults = searchTerm 
-                ? inventory.filter(i => (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase())) && !items.find(added => added.id === i.id))
-                : [];
-            
-            const addItem = (item) => {
-                if(items.find(i => i.id === item.id)) return;
-                setItems([...items, { ...item, dispatchQty: 1 }]);
-                setSearchTerm('');
-            };
-
-            const updateItemQty = (id, qty) => {
-                const inventoryItem = inventory.find(i => i.id === id);
-                const newQty = Math.max(0, Number(qty));
-                if (newQty > inventoryItem.qty) {
-                    setNotification({type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.`});
-                    return;
-                }
-                setItems(items.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
-            };
-
-            const removeItem = (id) => setItems(items.filter(i => i.id !== id));
-            
-            const handleSave = async () => {
-                if (!siteId) { setNotification({type: 'error', message: 'Please select a site.'}); return; }
-                if (items.length === 0) { setNotification({type: 'error', message: 'Please add at least one item to the receipt.'}); return; }
-                
-                setIsSaving(true);
-                const receiptData = { siteId, customerName, address, remarks, items };
-                await onSave(receiptData);
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="5xl">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                <option value="">-- Select Site --</option>
-                                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                            <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                            <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                             <input type="text" placeholder="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                        </div>
-
-                        <div className="border-t pt-4">
-                            <div className="relative">
-                                <label className="block text-sm font-medium">Add Items to Receipt</label>
-                                <input type="text" placeholder="Search by SKU or name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                                {searchResults.length > 0 && (
-                                    <ul className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                        {searchResults.map(i => 
-                                            <li key={i.id} className="p-2 flex justify-between items-center hover:bg-gray-100">
-                                                <span>{i.name} ({i.sku}) - Stock: {i.qty}</span>
-                                                <button onClick={() => addItem(i)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600">Add</button>
-                                            </li>
-                                        )}
-                                    </ul>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="h-64 overflow-y-auto border rounded-lg">
-                             <table className="w-full text-left">
-                                <thead className="sticky top-0 bg-gray-50"><tr><th className="p-2">SKU</th><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
-                                <tbody>
-                                    {items.length > 0 ? items.map(item => (
-                                        <tr key={item.id} className="border-b">
-                                            <td className="p-2 text-xs">{item.sku}</td>
-                                            <td className="p-2">{item.name}</td>
-                                            <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateItemQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500 font-bold">X</button></td>
-                                        </tr>
-                                    )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving || items.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                {isSaving ? 'Saving...' : 'Save Receipt'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        const ReceiptHistoryModal = ({ receipts, onClose, openDetailView }) => {
-            return (
-                 <Modal onClose={onClose} size="5xl">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Delivery Receipt History</h2>
-                         <div className="h-[60vh] overflow-y-auto border rounded-lg">
-                            <table className="w-full text-left">
-                                <thead className="sticky top-0 bg-gray-50"><tr><th className="p-3">DR #</th><th className="p-3">Date</th><th className="p-3">Site</th><th className="p-3">Customer</th><th className="p-3">Items</th><th className="p-3"></th></tr></thead>
-                                <tbody>
-                                    {receipts.map(r => (
-                                        <tr key={r.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 font-mono">{r.drNumber}</td>
-                                            <td className="p-3">{r.createdAt?.toDate().toLocaleDateString()}</td>
-                                            <td className="p-3">{r.siteName}</td>
-                                            <td className="p-3">{r.customerName}</td>
-                                            <td className="p-3">{r.items.length}</td>
-                                            <td className="p-3 text-right"><button onClick={() => openDetailView(r)} className="text-indigo-600 hover:underline">View</button></td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </Modal>
-            )
-        };
-        
-        const ReceiptDetailView = ({ receipt, onClose }) => {
-            const printContent = () => {
-                window.print();
-            };
-            const totalValue = receipt.items.reduce((sum, item) => sum + (item.dispatchQty * item.price), 0);
-
-            return (
-                <Modal onClose={onClose} size="3xl">
-                    <div className="printable-area space-y-6 p-4">
-                        <div className="text-center">
-                            <h2 className="text-2xl font-bold">DELIVERY RECEIPT</h2>
-                            <p className="text-lg font-mono text-red-600">{receipt.drNumber}</p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                             <div className="space-y-1">
-                                <p><span className="font-bold">Customer:</span> {receipt.customerName || 'N/A'}</p>
-                                <p><span className="font-bold">Address:</span> {receipt.address || 'N/A'}</p>
-                             </div>
-                             <div className="space-y-1 text-right">
-                                 <p><span className="font-bold">Date:</span> {receipt.createdAt?.toDate().toLocaleDateString()}</p>
-                                 <p><span className="font-bold">Site:</span> {receipt.siteName}</p>
-                             </div>
-                        </div>
-
-                         <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="p-2">Qty</th>
-                                    <th className="p-2">Unit</th>
-                                    <th className="p-2">Description</th>
-                                    <th className="p-2 text-right">Unit Price</th>
-                                    <th className="p-2 text-right">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {receipt.items.map(item => (
-                                    <tr key={item.id} className="border-b">
-                                        <td className="p-2">{item.dispatchQty}</td>
-                                        <td className="p-2">pcs</td>
-                                        <td className="p-2">({item.sku}) {item.name}</td>
-                                        <td className="p-2 text-right">{formatCurrency(item.price)}</td>
-                                        <td className="p-2 text-right">{formatCurrency(item.dispatchQty * item.price)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="font-bold">
-                                <tr>
-                                    <td colSpan="4" className="p-2 text-right">Total Value:</td>
-                                    <td className="p-2 text-right">{formatCurrency(totalValue)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-
-                        {receipt.remarks && <div className="pt-4"><p className="text-sm"><span className="font-bold">Remarks:</span> {receipt.remarks}</p></div>}
-                        
-                         <div className="pt-12 grid grid-cols-2 gap-8 text-center text-sm">
-                            <div>
-                                <p className="border-t pt-2">Received by / Date</p>
-                            </div>
-                            <div>
-                                <p className="border-t pt-2">Issued by</p>
-                            </div>
-                        </div>
-                    </div>
-                     <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
-                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
-                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                    </div>
-                </Modal>
-            )
-        };
-
         // --- Main App Component ---
         function App() {
             // --- State Declarations ---
@@ -619,10 +155,11 @@
             const [sites, setSites] = useState([]);
             const [receipts, setReceipts] = useState([]);
             const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10 });
+            const [drSettings, setDrSettings] = useState({ companyName: '', companyAddress: '', companyContact: '', companyLogoUrl: '' });
             const [isLoading, setIsLoading] = useState(true);
             const [modal, setModal] = useState(null);
             const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null); // Used for item forms, stock adjustments, and receipt details
+            const [currentItem, setCurrentItem] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [itemToDelete, setItemToDelete] = useState(null);
             
@@ -647,6 +184,7 @@
                     const app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
+                    storage = getStorage(app);
 
                     const unsubscribe = onAuthStateChanged(auth, (user) => {
                         if (user) {
@@ -695,10 +233,14 @@
                 const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), 
                     (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
                     err => console.error("Settings snapshot error:", err));
+                
+                const unsubDrSettings = onSnapshot(doc(db, `${basePath}/settings/dr_company_details`),
+                    (d) => { if (d.exists()) { setDrSettings(d.data()); } },
+                    err => console.error("DR Settings snapshot error:", err));
 
                 setIsLoading(false);
 
-                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubSettings(); };
+                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubSettings(); unsubDrSettings(); };
             }, [isAuthReady, user, appId]);
             
             // --- Helper to log actions ---
@@ -725,6 +267,25 @@
                     await logAction('Site Added', `New site created: ${newSite.name}`);
                 } catch(e) {
                     setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
+                }
+            };
+            
+            const handleSaveDrSettings = async (settingsData, logoFile) => {
+                const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'dr_company_details');
+                try {
+                    if (logoFile) {
+                        const logoRef = ref(storage, `artifacts/${appId}/public/logos/company_logo`);
+                        await uploadBytes(logoRef, logoFile);
+                        const downloadURL = await getDownloadURL(logoRef);
+                        settingsData.companyLogoUrl = downloadURL;
+                    }
+                    await setDoc(settingsRef, settingsData, { merge: true });
+                    setNotification({ type: 'success', message: 'DR Settings saved successfully!' });
+                    await logAction('DR Settings Updated', 'Company details for DR updated.');
+                    closeModal();
+                } catch (error) {
+                    console.error("DR Settings save failed:", error);
+                    setNotification({ type: 'error', message: `Failed to save DR settings: ${error.message}` });
                 }
             };
 
@@ -755,7 +316,8 @@
                             ...receiptData,
                             drNumber: drNumberString,
                             siteName: siteDoc.data().name,
-                            createdAt: serverTimestamp()
+                            createdAt: serverTimestamp(),
+                            companyDetails: drSettings // Save a snapshot of company settings with the DR
                         });
                         
                         // Update the site's DR number
@@ -869,45 +431,61 @@
             if (!isAuthReady) return <Spinner text="Initializing..." />;
             
             return (
-                <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
-                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); body { font-family: 'Poppins', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden}.printable-area,.printable-area *{visibility:visible}.printable-area{position:absolute;left:0;top:0;width:100%}.no-print{display:none}}`}</style>
-                    
-                    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-                        <header className="flex flex-wrap justify-between items-center gap-4 mb-8 no-print">
-                            <div>
-                                <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
-                                <p className="text-gray-500 mt-1">
-                                  Status: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator Mode" : "User Mode"}</span>
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                 <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
-                                    {isAdminMode ? '🔓' : '🛡️'}
-                                </button>
-                                {isAdminMode && <button onClick={() => openModal('sites')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Sites</button>}
-                                {isAdminMode && <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>}
-                                <button onClick={() => openModal('dr_history')} className="bg-white text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">View Receipts</button>
-                                <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md">🧾 Create Receipt</button>
-                                {isAdminMode && <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md">➕ Add Item</button>}
-                            </div>
-                        </header>
-                        
-                        <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-3"><StatsWidget inventory={inventory} /></div>
-                            <LogsWidget isLoading={isLoading} appId={appId} />
-                            <AllInventoryWidget 
-                                inventory={inventory}
-                                onEdit={(item) => openModal('item', item)} 
-                                onDelete={confirmDeleteItem} 
-                                onAdjustStock={(item) => openModal('stock', item)} 
-                                isLoading={isLoading} 
-                                searchTerm={searchTerm} 
-                                setSearchTerm={setSearchTerm} 
-                                isAdminMode={isAdminMode}
-                                settings={settings} 
-                            />
-                        </main>
+                <div className="container mx-auto px-4 max-w-6xl w-full">
+                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); body { font-family: 'Inter', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden!important}.printable-area,.printable-area *{visibility:visible!important}.printable-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:20px!important}.no-print{display:none!important}}`}</style>
+                    <header className="text-center my-10 no-print">
+                         <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 mb-2">Warehouse Management</h1>
+                         <p className="text-xl text-gray-600">Electrical Supplies Overview</p>
+                    </header>
+
+                    <div className="no-print">
+                        <DashboardCards inventory={inventory} receipts={receipts} />
+                        <LowStockNotification inventory={inventory} settings={settings} onClick={() => openModal('low_stock')} />
                     </div>
+
+                    <div className="flex flex-wrap justify-center gap-4 mb-10 no-print">
+                        <button onClick={() => openModal('stock')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300">
+                             Manage Stock
+                        </button>
+                         <button onClick={() => openModal('receipt')} className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-300">
+                             Create Delivery
+                         </button>
+                         <button onClick={() => openModal('logs')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-300">
+                             Activity Logs
+                         </button>
+                         <button onClick={() => openModal('dr_history')} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-purple-300">
+                             View Delivery Receipts
+                         </button>
+                         {isAdminMode && (
+                             <>
+                             <button onClick={() => openModal('dr_settings')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300">
+                                 DR Settings
+                             </button>
+                             <button onClick={() => openModal('sites')} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-emerald-300">
+                                 Manage Sites
+                             </button>
+                            </>
+                         )}
+                         <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-blue-800 hover:bg-blue-900 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-400">
+                            {isAdminMode ? 'Logout (Admin)' : 'Login (Admin)'}
+                         </button>
+                    </div>
+
+                    <section className="bg-white p-6 rounded-xl shadow-lg mb-10 no-print">
+                         <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Current Inventory Overview</h2>
+                        <AllInventoryWidget 
+                            inventory={inventory}
+                            onEdit={(item) => openModal('item', item)} 
+                            onDelete={confirmDeleteItem} 
+                            onAdjustStock={(item) => openModal('stock_adjust', item)} 
+                            isLoading={isLoading} 
+                            searchTerm={searchTerm} 
+                            setSearchTerm={setSearchTerm} 
+                            isAdminMode={isAdminMode}
+                            settings={settings} 
+                        />
+                    </section>
+
 
                     {/* --- Modals Layer --- */}
                     {notification && <NotificationModal message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
@@ -920,7 +498,7 @@
                     />
 
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
-                    {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'stock_adjust' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
