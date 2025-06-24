@@ -120,6 +120,46 @@
             );
         };
 
+        const LowStockWidget = ({ inventory, settings, onRestock, setNotification }) => {
+            const lowStockItems = useMemo(() => {
+                return inventory.filter(item => {
+                    const reorderLevel = Number(item.reorderLevel || settings.reorderLevel);
+                    return Number(item.qty) <= reorderLevel;
+                });
+            }, [inventory, settings]);
+
+            if (lowStockItems.length === 0) {
+                return (
+                    <div className="bg-white rounded-2xl shadow-lg p-6">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">Stock Alerts</h3>
+                        <div className="text-center py-8 flex flex-col items-center justify-center h-full">
+                            <div className="text-4xl mb-2">✅</div>
+                            <p className="text-gray-500">All items are well-stocked.</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-orange-50 border border-orange-200 rounded-2xl shadow-lg p-6">
+                    <h3 className="text-lg font-bold text-orange-800 mb-4">Low Stock Alerts ({lowStockItems.length})</h3>
+                    <ul className="space-y-2 h-64 overflow-y-auto pr-2">
+                        {lowStockItems.map(item => (
+                            <li key={item.id} className="text-sm p-2 bg-white rounded-lg flex justify-between items-center">
+                                <div>
+                                    <p className="font-medium text-gray-700">{item.name}</p>
+                                    <p className="text-xs text-gray-500">Stock: <span className="font-bold text-red-500">{item.qty}</span> / Reorder: {Number(item.reorderLevel || settings.reorderLevel)}</p>
+                                </div>
+                                <button onClick={() => { onRestock(item); setNotification({type: 'info', message: `${item.name} added to restock list.`})}} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600">
+                                    Restock
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            );
+        };
+
         const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, onRestock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
             const filteredInventory = useMemo(() => inventory.filter(item => 
                 (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
@@ -263,11 +303,11 @@
             );
         };
         
-        const AdminLoginModal = ({ onLogin }) => {
+        const AdminLoginModal = ({ onLogin, onClose }) => {
             const [password, setPassword] = useState('');
             const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
             return (
-                <Modal onClose={() => {}} size="sm">
+                <Modal onClose={onClose} size="sm">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <h2 className="text-2xl font-bold text-center text-gray-800">Admin Access</h2>
                         <div>
@@ -413,96 +453,113 @@
             const [customerName, setCustomerName] = useState('');
             const [address, setAddress] = useState('');
             const [remarks, setRemarks] = useState('');
-            const [items, setItems] = useState([]);
+            const [cart, setCart] = useState([]);
             const [searchTerm, setSearchTerm] = useState('');
             const [isSaving, setIsSaving] = useState(false);
 
-            const searchResults = searchTerm 
-                ? inventory.filter(i => (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase())) && !items.find(added => added.id === i.id))
-                : [];
-            
-            const addItem = (item) => {
-                if(items.find(i => i.id === item.id)) return;
-                setItems([...items, { ...item, dispatchQty: 1 }]);
-                setSearchTerm('');
+            const filteredInventory = useMemo(() => inventory.filter(i =>
+                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+            ), [inventory, searchTerm]);
+
+            const addToCart = (item) => {
+                setCart(prev => {
+                    if (prev.find(i => i.id === item.id)) {
+                        setNotification({ type: 'info', message: `${item.name} is already in the list.` });
+                        return prev;
+                    }
+                    return [...prev, { ...item, dispatchQty: 1 }];
+                });
             };
 
-            const updateItemQty = (id, qty) => {
+            const updateCartQty = (id, qty) => {
                 const inventoryItem = inventory.find(i => i.id === id);
                 const newQty = Math.max(0, Number(qty));
                 if (newQty > inventoryItem.qty) {
-                    setNotification({type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.`});
-                    setItems(items.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
+                    setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                    setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
                     return;
                 }
-                setItems(items.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+                setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
             };
 
-            const removeItem = (id) => setItems(items.filter(i => i.id !== id));
-            
-            const handleSave = async () => {
-                if (!siteId) { setNotification({type: 'error', message: 'Please select a site.'}); return; }
-                if (items.length === 0) { setNotification({type: 'error', message: 'Please add at least one item to the receipt.'}); return; }
-                if (items.some(i => i.dispatchQty <= 0)) { setNotification({type: 'error', message: 'All item quantities must be greater than zero.'}); return; }
+            const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
+            const handleSave = async () => {
+                const finalCart = cart.filter(i => i.dispatchQty > 0);
+                if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
+                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
+                
                 setIsSaving(true);
-                const receiptData = { siteId, customerName, address, remarks, items };
+                const receiptData = { siteId, customerName, address, remarks, items: finalCart };
                 await onSave(receiptData);
                 setIsSaving(false);
             };
 
             return (
-                <Modal onClose={onClose} size="5xl">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                <option value="">-- Select Site --</option>
-                                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                            <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                            <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
-                            <input type="text" placeholder="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
-                        </div>
-
-                        <div className="border-t pt-4">
-                            <div className="relative">
-                                <label className="block text-sm font-medium">Add Items to Receipt</label>
-                                <input type="text" placeholder="Search by SKU or name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                                {searchResults.length > 0 && (
-                                    <ul className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                        {searchResults.map(i => 
-                                            <li key={i.id} onClick={() => addItem(i)} className="p-2 flex justify-between items-center hover:bg-gray-100 cursor-pointer">
-                                                <span>{i.name} ({i.sku}) - Stock: {i.qty}</span>
-                                                <span className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600">Add</span>
-                                            </li>
-                                        )}
-                                    </ul>
-                                )}
+                <Modal onClose={onClose} size="7xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Item List & Header */}
+                        <div className="lg:col-span-2 space-y-4">
+                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                    <option value="">-- Select Site --</option>
+                                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                                <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
+                            </div>
+                            <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="h-[40vh] overflow-y-auto border rounded-lg">
+                                <table className="w-full text-left text-sm">
+                                     <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Stock</th>
+                                            <th className="p-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                <td className="p-2">{item.qty}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
-                        <div className="h-64 overflow-y-auto border rounded-lg">
-                             <table className="w-full text-left">
-                                 <thead className="sticky top-0 bg-gray-50 z-10"><tr><th className="p-2">SKU</th><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
-                                 <tbody>
-                                     {items.length > 0 ? items.map(item => (
-                                         <tr key={item.id} className="border-b">
-                                             <td className="p-2 text-xs">{item.sku}</td>
-                                             <td className="p-2">{item.name}</td>
-                                             <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateItemQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                             <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
-                                         </tr>
-                                     )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
-                                 </tbody>
-                             </table>
-                        </div>
-
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving || items.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                 {isSaving ? 'Saving...' : 'Save Receipt'}
-                             </button>
+                        {/* Receipt Cart Column */}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
+                            <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                    <tbody>
+                                        {cart.length > 0 ? cart.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name}</td>
+                                                <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
+                                            </tr>
+                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                             <div className="flex justify-end gap-4 pt-4 border-t">
+                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                     {isSaving ? 'Saving...' : `Save Receipt (${cart.filter(i => i.dispatchQty > 0).length})`}
+                                 </button>
+                             </div>
                         </div>
                     </div>
                 </Modal>
@@ -645,7 +702,7 @@
                         </div>
                     </div>
                      <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
-                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
                          <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
                      </div>
                 </Modal>
@@ -855,7 +912,7 @@
             return (
                  <Modal onClose={onClose} size="3xl">
                     <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">Review Restock List</h2>
                         <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                        
                         <div className="h-64 overflow-y-auto border rounded-lg">
@@ -868,7 +925,7 @@
                                              <td className="p-2"><input type="number" value={item.restockQty} onChange={e => onUpdateQty(item.id, e.target.value)} className="w-24 p-1 border rounded-md" /></td>
                                              <td className="p-2 text-right"><button onClick={() => onRemoveItem(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
                                          </tr>
-                                     )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">Restock list is empty.</td></tr>}
+                                     )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">Restock list is empty. Add items from the main inventory list.</td></tr>}
                                  </tbody>
                              </table>
                         </div>
@@ -1254,7 +1311,6 @@
                         setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
                         return prev;
                     }
-                    setNotification({ type: 'success', message: `${item.name} added to restock list.` });
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
@@ -1325,7 +1381,7 @@
                         
                         <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-3"><StatsWidget inventory={inventory} /></div>
-                            <LogsWidget isLoading={isLoading} appId={appId} />
+                            <LowStockWidget inventory={inventory} settings={settings} onRestock={handleAddToRestockCart} setNotification={setNotification} />
                             <AllInventoryWidget 
                                 inventory={inventory}
                                 onEdit={(item) => openModal('item', item)} 
@@ -1338,6 +1394,7 @@
                                 isAdminMode={isAdminMode}
                                 settings={settings} 
                             />
+                             <LogsWidget isLoading={isLoading} appId={appId} />
                         </main>
                     </div>
 
@@ -1350,7 +1407,7 @@
 
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} />}
+                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
