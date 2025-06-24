@@ -14,8 +14,8 @@
         import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
         import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
-        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
+        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u, getDocs as v } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u; window.getDocs = v;
     </script>
 
 </head>
@@ -370,9 +370,11 @@
             );
         };
         
-        const SettingsForm = ({ settings, onSave, onClose }) => {
+        const SettingsForm = ({ settings, onSave, onClose, onReset }) => {
             const [localSettings, setLocalSettings] = useState(settings);
             const [isSaving, setIsSaving] = useState(false);
+            const [showResetConfirm, setShowResetConfirm] = useState(false);
+            const [resetInput, setResetInput] = useState("");
 
             const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -381,9 +383,16 @@
                 await onSave(localSettings);
                 setIsSaving(false);
             };
+            
+            const handleReset = () => {
+                if (resetInput === "RESET") {
+                    onReset();
+                }
+            };
 
             return (
-                 <Modal onClose={onClose} size="lg">
+                <>
+                <Modal onClose={onClose} size="lg">
                      <div className="space-y-6">
                          <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
                          <div>
@@ -397,6 +406,7 @@
                             <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
                          </div>
                          <div className="flex justify-end gap-4 pt-4 border-t">
+                            <button type="button" onClick={() => setShowResetConfirm(true)} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">Factory Reset</button>
                              <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
                              <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
                                  {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
@@ -405,6 +415,20 @@
                          </div>
                      </div>
                  </Modal>
+                 {showResetConfirm && (
+                    <Modal onClose={() => setShowResetConfirm(false)} size="md">
+                        <div className="text-center space-y-4">
+                            <h3 className="text-2xl font-bold text-red-600">Are you absolutely sure?</h3>
+                            <p>This will permanently delete all receipts, orders, and logs. It will also reset all inventory quantities to zero. This action cannot be undone.</p>
+                            <label className="block text-sm font-medium">Type "RESET" to confirm:</label>
+                            <input type="text" value={resetInput} onChange={(e) => setResetInput(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-center" />
+                            <button onClick={handleReset} disabled={resetInput !== "RESET"} className="w-full px-6 py-2 text-white bg-red-600 rounded-full disabled:bg-red-300">
+                                Perform Factory Reset
+                            </button>
+                        </div>
+                    </Modal>
+                 )}
+                 </>
             );
         };
 
@@ -669,13 +693,7 @@
         };
         
         const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false }) => {
-            const printContent = () => {
-                const printArea = document.getElementById('print-area');
-                if (printArea) {
-                    printArea.innerHTML = document.querySelector('.printable-area').innerHTML;
-                    window.print();
-                }
-            };
+            const printContent = () => window.print();
             const totalValue = receipt.items.reduce((sum, item) => sum + ((item.dispatchQty || item.requestedQty) * item.price), 0);
             
             const effectiveTemplate = {
@@ -781,19 +799,28 @@
 
 
             if (isPreview) {
-                 return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
-                             <div className="p-8">
-                                {content}
-                             </div>
-                             <div className="flex justify-end gap-4 p-4 border-t no-print">
-                                 <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
-                                 <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                             </div>
-                        </div>
-                    </div>
-                 )
+                const printContainerRef = useRef(null);
+
+                useEffect(() => {
+                    if (printContainerRef.current) {
+                        const root = ReactDOM.createRoot(printContainerRef.current);
+                        root.render(
+                            <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                                    <div className="p-8">
+                                        {content}
+                                    </div>
+                                    <div className="flex justify-end gap-4 p-4 border-t no-print">
+                                        <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                                        <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    }
+                }, [receipt, template]);
+
+                return <div ref={printContainerRef}></div>;
             }
 
             return (
@@ -1449,6 +1476,36 @@
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
+            
+            const handleFactoryReset = async () => {
+                const collectionsToDelete = ['deliveryReceipts', 'userOrders', 'logs'];
+                const batch = writeBatch(db);
+
+                try {
+                    for (const coll of collectionsToDelete) {
+                        const snapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/${coll}`));
+                        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                    }
+                    
+                    const invSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/inventory`));
+                    invSnapshot.docs.forEach(doc => batch.update(doc.ref, { qty: 0 }));
+
+                    const sitesSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/sites`));
+                    sitesSnapshot.docs.forEach(doc => batch.update(doc.ref, { lastDrNumber: 0 }));
+
+                    const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'general');
+                    batch.update(settingsRef, { lastOrderNumber: 0 });
+
+                    await batch.commit();
+                    
+                    await logAction('System Reset', 'Application data has been reset.');
+                    setNotification({type: 'success', message: 'Application has been reset to factory settings.'});
+                    closeModal();
+                } catch (error) {
+                    console.error("Factory Reset failed:", error);
+                    setNotification({type: 'error', message: `Factory reset failed: ${error.message}`});
+                }
+            };
 
             // --- Auth & Modal Handlers ---
             const handleAdminLogin = (password) => {
@@ -1475,20 +1532,26 @@
             if (!isAuthReady || isLoading) return <Spinner text={!isAuthReady ? "Initializing..." : "Loading data..."} />;
             
             return (
-                <>
-                    <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
-                        <style>{`
-                            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
-                            body { font-family: 'Poppins', sans-serif; } 
-                            @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-                            .animate-scale-in{animation:scale-in .2s ease-out forwards} 
-                            
-                            @media print {
-                                body > :not(#print-area) { display: none !important; }
-                                #print-area { display: block !important; }
-                            }
-                        `}</style>
+                <div id="app-container">
+                    <style>{`
+                        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
+                        body { font-family: 'Poppins', sans-serif; } 
+                        @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+                        .animate-scale-in{animation:scale-in .2s ease-out forwards} 
                         
+                        @media print {
+                            body > #root > div:not(.print-this-receipt) { display: none !important; }
+                            .print-this-receipt { 
+                                display: block !important; 
+                                position: absolute !important;
+                                top: 0 !important;
+                                left: 0 !important;
+                                width: 100% !important;
+                            }
+                        }
+                    `}</style>
+                    
+                    <div className={modal === 'dr_detail_preview' ? 'hidden' : ''}>
                         <div className="container mx-auto p-4 sm:p-6 lg:p-8">
                             <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
                                 <div>
@@ -1550,7 +1613,7 @@
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
-                    {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
+                    {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onReset={handleFactoryReset} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} template={drTemplate} openPreview={(data) => openModal('dr_detail_preview', data)}/>}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
@@ -1563,7 +1626,7 @@
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
                     
-                    {modal === 'dr_detail_preview' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} isPreview={true} />}
+                    {modal === 'dr_detail_preview' && <div className="print-this-receipt"><ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} isPreview={true} /></div>}
 
                 </>
             );
