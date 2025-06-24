@@ -520,8 +520,11 @@
                 setShowPreview(true);
             };
 
+            if (showPreview) {
+                return <ReceiptDetailView receipt={previewData} onClose={() => setShowPreview(false)} template={template} isPreview={true} />;
+            }
+
             return (
-                <>
                 <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
@@ -589,7 +592,6 @@
                         </div>
                     </div>
                 </Modal>
-                {showPreview && <ReceiptDetailView receipt={previewData} onClose={() => setShowPreview(false)} template={template} isPreview={true} />}
                 </>
             );
         };
@@ -687,100 +689,118 @@
                 signatory4: '',
                 ...template
             };
-
-            const ModalWrapper = isPreview ? 'div' : Modal;
-            const modalProps = isPreview ? {} : {onClose, size: "3xl"};
-
-            return (
-                <ModalWrapper {...modalProps}>
-                     <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
-                        {/* Header */}
-                        <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
-                            <div className="w-1/4">
-                                {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
-                            </div>
-                            <div className="w-3/4 text-right">
-                                <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
-                                <p className="text-sm">{effectiveTemplate.companyAddress}</p>
-                                <p className="text-sm">{effectiveTemplate.companyContact}</p>
-                                <p className="text-sm">{effectiveTemplate.companyEmail}</p>
-                            </div>
+            
+            const content = (
+                 <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
+                        <div className="w-1/4">
+                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
                         </div>
-
-                        {/* Title */}
-                        <div className="text-center my-8">
-                            <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
-                        </div>
-                        
-                        {/* Customer & DR Info */}
-                        <div className="grid grid-cols-2 gap-8 mb-8">
-                            <div>
-                                <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
-                                <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
-                                <p>{receipt.address || 'N/A'}</p>
-                            </div>
-                            <div className="text-right">
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">No.:</span>
-                                    <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
-                                </div>
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">Date:</span>
-                                    <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
-                                </div>
-                                {receipt.drNumber && 
-                                    <div className="grid grid-cols-2">
-                                        <span className="font-bold">Site:</span>
-                                        <span className="text-right">{receipt.siteName}</span>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-
-                        {/* Items Table */}
-                        <table className="w-full text-left text-sm table-auto border-collapse">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="p-2 border">Qty</th>
-                                    <th className="p-2 border">Unit</th>
-                                    <th className="p-2 border">Description</th>
-                                    <th className="p-2 border text-right">Unit Price</th>
-                                    <th className="p-2 border text-right">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {receipt.items.map(item => (
-                                    <tr key={item.id} className="border-b">
-                                        <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                        <td className="p-2 border">pcs</td>
-                                        <td className="p-2 border">({item.sku}) {item.name}</td>
-                                        <td className="p-2 border text-right">{formatCurrency(item.price)}</td>
-                                        <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="font-bold">
-                                <tr>
-                                    <td colSpan="4" className="p-2 border text-right">Total Value:</td>
-                                    <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-
-                        {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
-                        
-                        <div className="mt-24 grid grid-cols-2 gap-16 text-center">
-                            {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
-                            {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
-                            {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
-                            {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                        <div className="w-3/4 text-right">
+                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
+                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
+                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
+                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
                         </div>
                     </div>
+
+                    {/* Title */}
+                    <div className="text-center my-8">
+                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
+                    </div>
+                    
+                    {/* Customer & DR Info */}
+                    <div className="grid grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
+                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                            <p>{receipt.address || 'N/A'}</p>
+                        </div>
+                        <div className="text-right">
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">No.:</span>
+                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
+                            </div>
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">Date:</span>
+                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
+                            </div>
+                            {receipt.drNumber && 
+                                <div className="grid grid-cols-2">
+                                    <span className="font-bold">Site:</span>
+                                    <span className="text-right">{receipt.siteName}</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    {/* Items Table */}
+                    <table className="w-full text-left text-sm table-auto border-collapse">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="p-2 border">Qty</th>
+                                <th className="p-2 border">Unit</th>
+                                <th className="p-2 border">Description</th>
+                                <th className="p-2 border text-right">Unit Price</th>
+                                <th className="p-2 border text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {receipt.items.map(item => (
+                                <tr key={item.id} className="border-b">
+                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
+                                    <td className="p-2 border">pcs</td>
+                                    <td className="p-2 border">({item.sku}) {item.name}</td>
+                                    <td className="p-2 border text-right">{formatCurrency(item.price)}</td>
+                                    <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot className="font-bold">
+                            <tr>
+                                <td colSpan="4" className="p-2 border text-right">Total Value:</td>
+                                <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
+                    
+                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
+                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
+                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
+                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
+                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                    </div>
+                </div>
+            );
+
+
+            if (isPreview) {
+                return (
+                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto print-this-modal">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                             <div className="p-8">
+                                {content}
+                             </div>
+                             <div className="flex justify-end gap-4 p-4 border-t no-print">
+                                 <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                                 <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                             </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            return (
+                <Modal onClose={onClose} size="3xl">
+                    {content}
                      <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
                          <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
                          <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
                      </div>
-                </ModalWrapper>
+                </Modal>
             )
         };
 
