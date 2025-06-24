@@ -160,7 +160,7 @@
             );
         };
 
-        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, onRestock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
+        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
             const filteredInventory = useMemo(() => inventory.filter(item => 
                 (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
                 (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
@@ -204,7 +204,6 @@
                                                 {isAdminMode && (
                                                     <td className="p-4 text-right">
                                                         <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onRestock(item)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-gray-100" title="Add to Restock List">➕</button>
                                                             <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
                                                             <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
                                                             <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
@@ -897,44 +896,94 @@
             );
         }
 
-        const RestockForm = ({ restockCart, onSave, onClose, onUpdateQty, onRemoveItem, setNotification }) => {
+        const RestockForm = ({ inventory, initialCart, onSave, onClose, setNotification }) => {
+            const [cart, setCart] = useState(initialCart || []);
             const [remarks, setRemarks] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
             const [isSaving, setIsSaving] = useState(false);
+
+            const filteredInventory = useMemo(() => inventory.filter(i =>
+                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+            ), [inventory, searchTerm]);
             
+            const addToCart = (item) => {
+                setCart(prev => {
+                    if (prev.find(i => i.id === item.id)) {
+                        setNotification({ type: 'info', message: `${item.name} is already in the list.` });
+                        return prev;
+                    }
+                    return [...prev, { ...item, restockQty: 10 }];
+                });
+            };
+
+            const updateCartQty = (id, qty) => setCart(prev => prev.map(i => i.id === id ? { ...i, restockQty: Math.max(0, Number(qty)) } : i));
+            const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+
             const handleSave = async () => {
-                 const finalCart = restockCart.filter(i => i.restockQty > 0);
-                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please set a quantity greater than zero for at least one item.'}); return; }
+                const finalCart = cart.filter(i => i.restockQty > 0);
+                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
                 setIsSaving(true);
                 await onSave(finalCart, remarks);
                 setIsSaving(false);
             };
 
             return (
-                 <Modal onClose={onClose} size="3xl">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Review Restock List</h2>
-                        <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                       
-                        <div className="h-64 overflow-y-auto border rounded-lg">
-                             <table className="w-full text-left">
-                                 <thead className="sticky top-0 bg-gray-50 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-32">Add Qty</th><th className="p-2"></th></tr></thead>
-                                 <tbody>
-                                     {restockCart.length > 0 ? restockCart.map(item => (
-                                         <tr key={item.id} className="border-b">
-                                             <td className="p-2">{item.name}</td>
-                                             <td className="p-2"><input type="number" value={item.restockQty} onChange={e => onUpdateQty(item.id, e.target.value)} className="w-24 p-1 border rounded-md" /></td>
-                                             <td className="p-2 text-right"><button onClick={() => onRemoveItem(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
-                                         </tr>
-                                     )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">Restock list is empty. Add items from the main inventory list.</td></tr>}
-                                 </tbody>
-                             </table>
+                 <Modal onClose={onClose} size="7xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                         {/* Item List & Header */}
+                        <div className="lg:col-span-2 space-y-4">
+                             <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
+                            <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="h-[50vh] overflow-y-auto border rounded-lg">
+                                <table className="w-full text-left text-sm">
+                                     <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Current Stock</th>
+                                            <th className="p-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                <td className="p-2">{item.qty}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving || restockCart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
-                                 {isSaving ? 'Receiving...' : 'Receive Stock'}
-                             </button>
+                         {/* Restock Cart Column */}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                            <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
+                             <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Add Qty</th><th className="p-2"></th></tr></thead>
+                                    <tbody>
+                                        {cart.length > 0 ? cart.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name}</td>
+                                                <td className="p-2"><input type="number" value={item.restockQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
+                                            </tr>
+                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added to restock list.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                             <div className="flex justify-end gap-4 pt-4 border-t">
+                                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
+                                     {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
+                                 </button>
+                             </div>
                         </div>
                     </div>
                 </Modal>
@@ -1314,8 +1363,6 @@
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
-            const handleUpdateRestockQty = (id, qty) => setRestockCart(p => p.map(i => i.id === id ? {...i, restockQty: Math.max(0, Number(qty))} : i));
-            const handleRemoveFromRestock = (id) => setRestockCart(p => p.filter(i => i.id !== id));
 
             // --- Auth & Modal Handlers ---
             const handleAdminLogin = (password) => {
@@ -1413,7 +1460,7 @@
                     {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'restock' && <RestockForm restockCart={restockCart} onSave={handleRestockItems} onClose={closeModal} onUpdateQty={handleUpdateRestockQty} onRemoveItem={handleRemoveFromRestock} setNotification={setNotification}/>}
+                    {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
 
                     {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={[{label: "Void", handler: (r) => setReceiptToVoid(r), disabled: (r) => r.status === 'Voided', className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]}/>}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
