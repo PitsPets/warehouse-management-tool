@@ -204,6 +204,116 @@
                 </div>
             );
         };
+        
+        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
+            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
+            const [isSaving, setIsSaving] = useState(false);
+
+            useEffect(() => {
+                if (currentItem) {
+                    setItem(currentItem);
+                } else {
+                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+                }
+            }, [currentItem]);
+
+            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!item.name || !item.sku) {
+                    setNotification({type: 'error', message: 'SKU and Name are required.'});
+                    return;
+                }
+                setIsSaving(true);
+                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
+                setIsSaving(false);
+            };
+
+            return (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
+                    <div><label className="block text-sm font-bold text-gray-700">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 bg-gray-100" readOnly /></div>
+                    <div><label className="block text-sm font-bold text-gray-700">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-bold text-gray-700">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
+                        <div><label className="block text-sm font-bold text-gray-700">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-bold text-gray-700">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
+                        <div><label className="block text-sm font-bold text-gray-700">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
+                    </div>
+                    { !currentItem && <div><label className="block text-sm font-bold text-gray-700">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>}
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-6 rounded-full">Cancel</button>
+                        <button type="submit" disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-full flex items-center gap-2 disabled:bg-green-300">
+                           {isSaving ? 'Saving...' : (currentItem ? 'Update Item' : 'Add Item')}
+                        </button>
+                    </div>
+                </form>
+            );
+        };
+        
+        const AdminLoginModal = ({ onLogin }) => {
+            const [password, setPassword] = useState('');
+            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
+            return (
+                <Modal onClose={() => {}} size="sm">
+                    <form onSubmit={handleSubmit} className="space-y-4 text-center">
+                        <h2 className="text-3xl font-bold text-gray-800 mb-6">Admin Login</h2>
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-bold mb-2">Password:</label>
+                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" autoFocus />
+                        </div>
+                        <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-md w-full">Login</button>
+                    </form>
+                </Modal>
+            );
+        };
+        
+        const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
+            const [adjustment, setAdjustment] = useState(0);
+            const [isSaving, setIsSaving] = useState(false);
+
+            const handleSave = async () => {
+                if (adjustment === 0) {
+                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
+                     return;
+                }
+                setIsSaving(true);
+                await onAdjust(item, adjustment);
+                setIsSaving(false);
+            }
+
+            return (
+                 <Modal onClose={onClose} size="md">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
+                        <div>
+                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
+                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
+                           <input 
+                                type="number" 
+                                value={adjustment} 
+                                onChange={(e) => setAdjustment(Number(e.target.value))} 
+                                className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
+                                autoFocus
+                            />
+                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
+                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
 
         const DrSettingsForm = ({ drSettings, onSave, onClose, setNotification }) => {
             const [settings, setSettings] = useState(drSettings);
@@ -257,16 +367,16 @@
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-gray-700 text-sm font-bold mb-2">Company Name:</label>
-                                    <input type="text" name="companyName" value={settings.companyName} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
+                                    <input type="text" name="companyName" value={settings.companyName || ''} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
                                 </div>
                                 <div>
                                     <label className="block text-gray-700 text-sm font-bold mb-2">Company Contact:</label>
-                                    <input type="text" name="companyContact" value={settings.companyContact} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
+                                    <input type="text" name="companyContact" value={settings.companyContact || ''} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
                                 </div>
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-gray-700 text-sm font-bold mb-2">Company Address:</label>
-                                <textarea name="companyAddress" value={settings.companyAddress} onChange={handleChange} rows="3" className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700"></textarea>
+                                <textarea name="companyAddress" value={settings.companyAddress || ''} onChange={handleChange} rows="3" className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700"></textarea>
                             </div>
                         </div>
                         <button onClick={handleSave} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-md w-full">
@@ -385,6 +495,25 @@
                     setNotification({type: 'success', message: 'Admin mode unlocked!'});
                 } else {
                     setNotification({type: 'error', message: 'Incorrect admin password.'});
+                }
+            };
+
+            const handleSaveDrSettings = async (settingsData, logoFile) => {
+                const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'dr_company_details');
+                try {
+                    if (logoFile) {
+                        const logoRef = ref(storage, `artifacts/${appId}/public/logos/company_logo`);
+                        await uploadBytes(logoRef, logoFile);
+                        const downloadURL = await getDownloadURL(logoRef);
+                        settingsData.companyLogoUrl = downloadURL;
+                    }
+                    await setDoc(settingsRef, settingsData, { merge: true });
+                    setNotification({ type: 'success', message: 'DR Settings saved successfully!' });
+                    await logAction('DR Settings Updated', 'Company details for DR updated.');
+                    closeModal();
+                } catch (error) {
+                    console.error("DR Settings save failed:", error);
+                    setNotification({ type: 'error', message: `Failed to save DR settings: ${error.message}` });
                 }
             };
             
