@@ -447,7 +447,7 @@
             );
         };
         
-        const DeliveryReceiptForm = ({ inventory, sites, onSave, onClose, setNotification }) => {
+        const DeliveryReceiptForm = ({ inventory, sites, onSave, onClose, setNotification, template }) => {
             const [siteId, setSiteId] = useState('');
             const [customerName, setCustomerName] = useState('');
             const [address, setAddress] = useState('');
@@ -455,6 +455,8 @@
             const [cart, setCart] = useState([]);
             const [searchTerm, setSearchTerm] = useState('');
             const [isSaving, setIsSaving] = useState(false);
+            const [showPreview, setShowPreview] = useState(false);
+            const [previewData, setPreviewData] = useState(null);
 
             const filteredInventory = useMemo(() => inventory.filter(i =>
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -494,7 +496,27 @@
                 setIsSaving(false);
             };
 
+            const handlePreview = () => {
+                const finalCart = cart.filter(i => i.dispatchQty > 0);
+                if(finalCart.length === 0){
+                    setNotification({type:'info', message:'Add items to the receipt to generate a preview.'});
+                    return;
+                }
+                const data = {
+                    drNumber: 'DR-PREVIEW',
+                    customerName,
+                    address,
+                    remarks,
+                    items: finalCart,
+                    siteName: sites.find(s => s.id === siteId)?.name || 'N/A',
+                    createdAt: { toDate: () => new Date() } // Mock server timestamp
+                };
+                setPreviewData(data);
+                setShowPreview(true);
+            };
+
             return (
+                <>
                 <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
@@ -553,8 +575,8 @@
                                 </table>
                             </div>
                             <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                             <div className="flex justify-end gap-4 pt-4 border-t">
-                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                             <div className="flex justify-end gap-2 pt-4 border-t">
+                                 <button type="button" onClick={handlePreview} className="px-6 py-2 bg-gray-200 rounded-full">Preview</button>
                                  <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
                                      {isSaving ? 'Saving...' : `Save Receipt (${cart.filter(i => i.dispatchQty > 0).length})`}
                                  </button>
@@ -562,6 +584,8 @@
                         </div>
                     </div>
                 </Modal>
+                {showPreview && <ReceiptDetailView receipt={previewData} onClose={() => setShowPreview(false)} template={template} />}
+                </>
             );
         };
         
@@ -1201,24 +1225,35 @@
             };
             
             const handleSaveReceipt = async (receiptData) => {
-                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
                 const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
 
                 try {
                     await runTransaction(db, async (transaction) => {
+                        // --- All READS first ---
+                        const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
+                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+
+                        // --- Validation after all reads ---
+                        for(let i = 0; i < itemDocs.length; i++) {
+                            const invItemDoc = itemDocs[i];
+                            const requestedItem = receiptData.items[i];
+                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
+                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                            }
+                        }
+                        
+                        // --- All WRITES last ---
                         const newDrNumber = siteDoc.data().lastDrNumber + 1;
                         const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
 
-                        for (const item of receiptData.items) {
-                            const invItemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                            const invItemDoc = await transaction.get(invItemRef);
-                            if (!invItemDoc.exists() || invItemDoc.data().qty < item.dispatchQty) {
-                                throw new Error(`Insufficient stock for ${item.name}. Available: ${invItemDoc.data().qty}, Required: ${item.dispatchQty}.`);
-                            }
-                            transaction.update(invItemRef, { qty: increment(-item.dispatchQty) });
+                        for (let i = 0; i < receiptData.items.length; i++) {
+                            const itemRef = itemRefs[i];
+                            const requestedItem = receiptData.items[i];
+                            transaction.update(itemRef, { qty: increment(-requestedItem.dispatchQty) });
                         }
 
                         transaction.set(doc(receiptsCollectionRef), {
@@ -1249,24 +1284,30 @@
                 }
                 try {
                      await runTransaction(db, async (transaction) => {
+                        // --- All READS first ---
                         const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
-                        for (const item of receipt.items) {
-                            const itemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                            const itemDoc = await transaction.get(itemRef);
+                        const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+
+                        // --- All WRITES last ---
+                        for (let i = 0; i < receipt.items.length; i++) {
+                            const itemRef = itemRefs[i];
+                            const itemDoc = itemDocs[i];
                             if (itemDoc.exists()) {
-                                transaction.update(itemRef, { qty: increment(item.dispatchQty) });
+                                transaction.update(itemRef, { qty: increment(receipt.items[i].dispatchQty) });
                             }
                         }
                         transaction.update(receiptRef, { status: 'Voided' });
                     });
+                    
                     await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
                     setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
-                    closeModal(); // Close the main DR Manager modal on success
+                    setReceiptToVoid(null);
+                    closeModal(); 
                 } catch(e) {
                     console.error("Void receipt transaction failed:", e);
                     setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`});
-                } finally {
-                    setReceiptToVoid(null); // Always close the confirmation modal
+                    setReceiptToVoid(null);
                 }
             };
             
@@ -1434,7 +1475,6 @@
                                 onEdit={(item) => openModal('item', item)} 
                                 onDelete={confirmDeleteItem} 
                                 onAdjustStock={(item) => openModal('stock', item)}
-                                onRestock={handleAddToRestockCart}
                                 isLoading={isLoading} 
                                 searchTerm={searchTerm} 
                                 setSearchTerm={setSearchTerm} 
@@ -1457,7 +1497,7 @@
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} template={drTemplate} />}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
