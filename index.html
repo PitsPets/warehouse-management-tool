@@ -726,11 +726,6 @@
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
                     {modal === 'stock_adjust' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} />}
-                    {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
-                    {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'dr_history' && <ReceiptHistoryModal receipts={receipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} />}
-                    {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} />}
                     {modal === 'dr_settings' && <DrSettingsForm drSettings={drSettings} onSave={handleSaveDrSettings} onClose={closeModal} setNotification={setNotification} />}
 
                 </div>
@@ -741,4 +736,4 @@
         root.render(<App />);
     </script>
 </body>
-</ht
+</html>
