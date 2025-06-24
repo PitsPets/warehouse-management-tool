@@ -497,7 +497,7 @@
                     setNotification({type: 'error', message: 'Incorrect admin password.'});
                 }
             };
-
+            
             const handleSaveDrSettings = async (settingsData, logoFile) => {
                 const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'dr_company_details');
                 try {
@@ -517,6 +517,133 @@
                 }
             };
             
+             const handleSaveItem = async (itemData) => {
+                const path = `artifacts/${appId}/public/data/inventory`;
+                const isEditing = !!currentItem?.id;
+
+                try {
+                    if (isEditing) {
+                        const itemRef = doc(db, path, currentItem.id);
+                        await updateDoc(itemRef, { ...itemData, updatedAt: serverTimestamp() });
+                        await logAction('Item Updated', `${itemData.name} (${itemData.sku})`);
+                        setNotification({type: 'success', message: 'Item updated successfully!'});
+                    } else {
+                        await addDoc(collection(db, path), { ...itemData, createdAt: serverTimestamp() });
+                        await logAction('Item Added', `${itemData.name} (${itemData.sku})`);
+                        setNotification({type: 'success', message: 'New item added to inventory!'});
+                    }
+                    closeModal();
+                } catch (e) {
+                    console.error("Save error:", e);
+                    setNotification({type: 'error', message: `Failed to save item: ${e.message}`});
+                }
+            };
+
+            const confirmDeleteItem = (id, name) => setItemToDelete({ id, name });
+            
+            const handleDeleteItem = async () => {
+                if (!itemToDelete) return;
+                const path = `artifacts/${appId}/public/data/inventory`;
+                try {
+                    await deleteDoc(doc(db, path, itemToDelete.id));
+                    await logAction('Item Deleted', `Deleted item "${itemToDelete.name}"`);
+                    setNotification({type: 'success', message: 'Item successfully deleted.'});
+                } catch (e) {
+                    console.error("Delete error:", e);
+                    setNotification({type: 'error', message: `Failed to delete item: ${e.message}`});
+                } finally {
+                    setItemToDelete(null); // Close confirmation modal
+                }
+            };
+
+            const handleAdjustStock = async (item, adjustment) => {
+                const path = `artifacts/${appId}/public/data/inventory`;
+                const newQty = item.qty + adjustment;
+                if (newQty < 0) {
+                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."});
+                     return;
+                }
+                try {
+                    const itemRef = doc(db, path, item.id);
+                    await updateDoc(itemRef, { qty: increment(adjustment) });
+                    await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
+                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
+                    closeModal();
+                } catch (e) {
+                    console.error("Stock adjustment error:", e);
+                    setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`});
+                }
+            };
+
+            const handleAddSite = async (newSite) => {
+                const path = `artifacts/${appId}/public/data/sites`;
+                 try {
+                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
+                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
+                    await logAction('Site Added', `New site created: ${newSite.name}`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
+                }
+            };
+            
+            const handleSaveSettings = async (newSettings) => {
+                const path = `artifacts/${appId}/public/data/settings`;
+                 try {
+                    await setDoc(doc(db, path, 'general'), newSettings);
+                    await logAction('Settings Updated', 'Admin password or reorder level changed.');
+                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    closeModal();
+                } catch (e) {
+                     console.error("Settings save error:", e);
+                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                }
+            };
+
+            const handleSaveReceipt = async (receiptData) => {
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
+                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
+
+                try {
+                    await runTransaction(db, async (transaction) => {
+                        const siteDoc = await transaction.get(siteRef);
+                        if (!siteDoc.exists()) throw "Selected site does not exist.";
+
+                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
+                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
+
+                        // Check stock and prepare inventory updates
+                        for (const item of receiptData.items) {
+                            const invItemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
+                            const invItemDoc = await transaction.get(invItemRef);
+                            if (!invItemDoc.exists() || invItemDoc.data().qty < item.dispatchQty) {
+                                throw `Insufficient stock for ${item.name}. Available: ${invItemDoc.data().qty}, Required: ${item.dispatchQty}.`;
+                            }
+                            transaction.update(invItemRef, { qty: increment(-item.dispatchQty) });
+                        }
+
+                        // Create the receipt
+                        transaction.set(doc(receiptsCollectionRef), {
+                            ...receiptData,
+                            drNumber: drNumberString,
+                            siteName: siteDoc.data().name,
+                            createdAt: serverTimestamp(),
+                            companyDetails: drSettings // Save a snapshot of company settings with the DR
+                        });
+                        
+                        // Update the site's DR number
+                        transaction.update(siteRef, { lastDrNumber: increment(1) });
+                    });
+                    
+                    setNotification({ type: 'success', message: 'Delivery receipt saved successfully!'});
+                    await logAction('Receipt Created', `DR for site ${receiptData.siteId} saved.`);
+                    closeModal();
+
+                } catch (error) {
+                    console.error("Receipt save transaction failed: ", error);
+                    setNotification({ type: 'error', message: `Failed to save receipt: ${error}` });
+                }
+            };
+
             const openModal = (type, item = null) => {
                 setCurrentItem(item);
                 setModal(type);
