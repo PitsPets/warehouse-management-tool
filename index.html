@@ -144,6 +144,138 @@
                 </section>
             );
         };
+
+        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
+            const filteredInventory = inventory.filter(item => 
+                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+            );
+
+            return (
+                <div className="bg-white p-6 rounded-xl shadow-lg lg:col-span-2">
+                    <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
+                        <h3 className="text-2xl font-bold text-gray-800">Current Inventory Overview</h3>
+                        <div className="relative w-full sm:w-64">
+                            <input type="text" placeholder="Search by SKU, name..." className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:ring-2 focus:ring-blue-300" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        </div>
+                    </div>
+                    {isLoading ? <Spinner text="Loading inventory..." /> : (
+                        <div className="overflow-y-auto border-t border-b border-gray-200" style={{maxHeight: '400px'}}>
+                            <table className="w-full text-left table-auto">
+                                <thead className="sticky top-0 bg-gray-50 z-10">
+                                    <tr className="border-b-2 border-gray-200">
+                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Description</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Brand</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Current Stock</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                        <th className="p-4 text-sm font-semibold text-gray-600">Min Stock</th>
+                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-center">Actions</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                        const isLowStock = Number(item.qty) < reorder;
+                                        return (
+                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-yellow-50' : ''}`}>
+                                                <td className="p-4 font-mono text-sm text-gray-700">{item.sku}</td>
+                                                <td className="p-4 font-medium text-gray-800">{item.name}</td>
+                                                <td className="p-4 text-gray-600">{item.brand}</td>
+                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
+                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                <td className="p-4 text-gray-600">{item.reorderLevel}</td>
+                                                {isAdminMode && (
+                                                    <td className="p-4 text-center space-x-2">
+                                                        <button onClick={() => onEdit(item)} className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm px-3 py-1 rounded-md transition-colors duration-200" title="Edit Item">Edit</button>
+                                                        <button onClick={() => onDelete(item.id, item.name)} className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded-md transition-colors duration-200" title="Delete Item">Remove</button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        )
+                                    }) : (
+                                        <tr><td colSpan={isAdminMode ? "7" : "6"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add new items via "Manage Stock".`}</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DrSettingsForm = ({ drSettings, onSave, onClose, setNotification }) => {
+            const [settings, setSettings] = useState(drSettings);
+            const [logoFile, setLogoFile] = useState(null);
+            const [logoPreview, setLogoPreview] = useState(drSettings.companyLogoUrl);
+            const [isSaving, setIsSaving] = useState(false);
+
+            useEffect(() => {
+                setSettings(drSettings);
+                setLogoPreview(drSettings.companyLogoUrl);
+            }, [drSettings]);
+
+            const handleChange = (e) => {
+                setSettings(prev => ({...prev, [e.target.name]: e.target.value}));
+            };
+
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    if (file.size > 2 * 1024 * 1024) { // 2MB limit
+                        setNotification({ type: 'error', message: 'Logo file size cannot exceed 2MB.' });
+                        return;
+                    }
+                    setLogoFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setLogoPreview(reader.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+            
+            const handleSave = async () => {
+                setIsSaving(true);
+                await onSave(settings, logoFile);
+                setIsSaving(false);
+            };
+
+            return (
+                <Modal onClose={onClose} size="lg">
+                    <div className="space-y-6">
+                        <h2 className="text-3xl font-bold text-gray-800 text-center">Delivery Receipt Company Settings</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-gray-700 text-sm font-bold mb-2">Company Logo:</label>
+                                <input type="file" accept="image/*" onChange={handleFileChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
+                                <div className="mt-2 text-center">
+                                    <img src={logoPreview || 'https://placehold.co/150x50/cccccc/000000?text=Logo+Preview'} alt="Logo Preview" className="mx-auto border border-gray-300 rounded-md p-1" style={{maxWidth: '150px', maxHeight: '100px'}} />
+                                </div>
+                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-gray-700 text-sm font-bold mb-2">Company Name:</label>
+                                    <input type="text" name="companyName" value={settings.companyName} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
+                                </div>
+                                <div>
+                                    <label className="block text-gray-700 text-sm font-bold mb-2">Company Contact:</label>
+                                    <input type="text" name="companyContact" value={settings.companyContact} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
+                                </div>
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-gray-700 text-sm font-bold mb-2">Company Address:</label>
+                                <textarea name="companyAddress" value={settings.companyAddress} onChange={handleChange} rows="3" className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700"></textarea>
+                            </div>
+                        </div>
+                        <button onClick={handleSave} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-md w-full">
+                            {isSaving ? 'Saving...' : 'Save DR Settings'}
+                        </button>
+                    </div>
+                </Modal>
+            )
+        };
         
         // --- Main App Component ---
         function App() {
@@ -218,29 +350,16 @@
                 setIsLoading(true);
                 const basePath = `artifacts/${appId}/public/data`;
                 
-                const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), 
-                    snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-                    err => console.error("Inventory snapshot error:", err));
-                    
-                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')),
-                    snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))),
-                    err => console.error("Sites snapshot error:", err));
-
-                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')),
-                    snap => setReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))),
-                    err => console.error("Receipts snapshot error:", err));
-                    
-                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), 
-                    (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
-                    err => console.error("Settings snapshot error:", err));
-                
-                const unsubDrSettings = onSnapshot(doc(db, `${basePath}/settings/dr_company_details`),
-                    (d) => { if (d.exists()) { setDrSettings(d.data()); } },
-                    err => console.error("DR Settings snapshot error:", err));
+                const unsubs = [
+                    onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Inventory snapshot error:", err)),
+                    onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err)),
+                    onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err)),
+                    onSnapshot(doc(db, `${basePath}/settings/general`), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } }, err => console.error("Settings snapshot error:", err)),
+                    onSnapshot(doc(db, `${basePath}/settings/dr_company_details`), (d) => { if (d.exists()) { setDrSettings(d.data()); } }, err => console.error("DR Settings snapshot error:", err))
+                ];
 
                 setIsLoading(false);
-
-                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubSettings(); unsubDrSettings(); };
+                return () => unsubs.forEach(unsub => unsub());
             }, [isAuthReady, user, appId]);
             
             // --- Helper to log actions ---
@@ -258,155 +377,7 @@
                 }
             };
 
-            // --- Business Logic Handlers ---
-            const handleAddSite = async (newSite) => {
-                const path = `artifacts/${appId}/public/data/sites`;
-                 try {
-                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
-                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
-                    await logAction('Site Added', `New site created: ${newSite.name}`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
-                }
-            };
-            
-            const handleSaveDrSettings = async (settingsData, logoFile) => {
-                const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'dr_company_details');
-                try {
-                    if (logoFile) {
-                        const logoRef = ref(storage, `artifacts/${appId}/public/logos/company_logo`);
-                        await uploadBytes(logoRef, logoFile);
-                        const downloadURL = await getDownloadURL(logoRef);
-                        settingsData.companyLogoUrl = downloadURL;
-                    }
-                    await setDoc(settingsRef, settingsData, { merge: true });
-                    setNotification({ type: 'success', message: 'DR Settings saved successfully!' });
-                    await logAction('DR Settings Updated', 'Company details for DR updated.');
-                    closeModal();
-                } catch (error) {
-                    console.error("DR Settings save failed:", error);
-                    setNotification({ type: 'error', message: `Failed to save DR settings: ${error.message}` });
-                }
-            };
-
-            const handleSaveReceipt = async (receiptData) => {
-                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
-                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
-
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const siteDoc = await transaction.get(siteRef);
-                        if (!siteDoc.exists()) throw "Selected site does not exist.";
-
-                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
-                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
-
-                        // Check stock and prepare inventory updates
-                        for (const item of receiptData.items) {
-                            const invItemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                            const invItemDoc = await transaction.get(invItemRef);
-                            if (!invItemDoc.exists() || invItemDoc.data().qty < item.dispatchQty) {
-                                throw `Insufficient stock for ${item.name}. Available: ${invItemDoc.data().qty}, Required: ${item.dispatchQty}.`;
-                            }
-                            transaction.update(invItemRef, { qty: increment(-item.dispatchQty) });
-                        }
-
-                        // Create the receipt
-                        transaction.set(doc(receiptsCollectionRef), {
-                            ...receiptData,
-                            drNumber: drNumberString,
-                            siteName: siteDoc.data().name,
-                            createdAt: serverTimestamp(),
-                            companyDetails: drSettings // Save a snapshot of company settings with the DR
-                        });
-                        
-                        // Update the site's DR number
-                        transaction.update(siteRef, { lastDrNumber: increment(1) });
-                    });
-                    
-                    setNotification({ type: 'success', message: 'Delivery receipt saved successfully!'});
-                    await logAction('Receipt Created', `DR for site ${receiptData.siteId} saved.`);
-                    closeModal();
-
-                } catch (error) {
-                    console.error("Receipt save transaction failed: ", error);
-                    setNotification({ type: 'error', message: `Failed to save receipt: ${error}` });
-                }
-            };
-            
-            // --- CRUD Handlers ---
-            const handleSaveItem = async (itemData) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const isEditing = !!currentItem?.id;
-
-                try {
-                    if (isEditing) {
-                        const itemRef = doc(db, path, currentItem.id);
-                        await updateDoc(itemRef, { ...itemData, updatedAt: serverTimestamp() });
-                        await logAction('Item Updated', `${itemData.name} (${itemData.sku})`);
-                        setNotification({type: 'success', message: 'Item updated successfully!'});
-                    } else {
-                        await addDoc(collection(db, path), { ...itemData, createdAt: serverTimestamp() });
-                        await logAction('Item Added', `${itemData.name} (${itemData.sku})`);
-                        setNotification({type: 'success', message: 'New item added to inventory!'});
-                    }
-                    closeModal();
-                } catch (e) {
-                    console.error("Save error:", e);
-                    setNotification({type: 'error', message: `Failed to save item: ${e.message}`});
-                }
-            };
-
-            const confirmDeleteItem = (id, name) => setItemToDelete({ id, name });
-            
-            const handleDeleteItem = async () => {
-                if (!itemToDelete) return;
-                const path = `artifacts/${appId}/public/data/inventory`;
-                try {
-                    await deleteDoc(doc(db, path, itemToDelete.id));
-                    await logAction('Item Deleted', `Deleted item "${itemToDelete.name}"`);
-                    setNotification({type: 'success', message: 'Item successfully deleted.'});
-                } catch (e) {
-                    console.error("Delete error:", e);
-                    setNotification({type: 'error', message: `Failed to delete item: ${e.message}`});
-                } finally {
-                    setItemToDelete(null); // Close confirmation modal
-                }
-            };
-
-            const handleAdjustStock = async (item, adjustment) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const newQty = item.qty + adjustment;
-                if (newQty < 0) {
-                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."});
-                     return;
-                }
-                try {
-                    const itemRef = doc(db, path, item.id);
-                    await updateDoc(itemRef, { qty: increment(adjustment) });
-                    await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
-                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
-                    closeModal();
-                } catch (e) {
-                    console.error("Stock adjustment error:", e);
-                    setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`});
-                }
-            };
-            
-            const handleSaveSettings = async (newSettings) => {
-                const path = `artifacts/${appId}/public/data/settings`;
-                 try {
-                    await setDoc(doc(db, path, 'general'), newSettings);
-                    await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                    setNotification({type: 'success', message: 'Settings saved successfully!'});
-                    closeModal();
-                } catch (e) {
-                     console.error("Settings save error:", e);
-                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
-                }
-            };
-
-            // --- Auth & Modal Handlers ---
+            // --- Handlers ---
             const handleAdminLogin = (password) => {
                 if (password === settings.adminPass) {
                     setIsAdminMode(true);
@@ -432,7 +403,7 @@
             
             return (
                 <div className="container mx-auto px-4 max-w-6xl w-full">
-                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); body { font-family: 'Inter', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden!important}.printable-area,.printable-area *{visibility:visible!important}.printable-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:20px!important}.no-print{display:none!important}}`}</style>
+                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); body { font-family: 'Inter', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden!important}.printable-area,.printable-area *{visibility:visible!important}.printable-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:20px!important;background:white!important;color:black!important;}.no-print{display:none!important}}`}</style>
                     <header className="text-center my-10 no-print">
                          <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 mb-2">Warehouse Management</h1>
                          <p className="text-xl text-gray-600">Electrical Supplies Overview</p>
@@ -472,7 +443,6 @@
                     </div>
 
                     <section className="bg-white p-6 rounded-xl shadow-lg mb-10 no-print">
-                         <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Current Inventory Overview</h2>
                         <AllInventoryWidget 
                             inventory={inventory}
                             onEdit={(item) => openModal('item', item)} 
@@ -505,7 +475,7 @@
                     {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'dr_history' && <ReceiptHistoryModal receipts={receipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} />}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} />}
-
+                    {modal === 'dr_settings' && <DrSettingsForm drSettings={drSettings} onSave={handleSaveDrSettings} onClose={closeModal} setNotification={setNotification} />}
 
                 </div>
             );
