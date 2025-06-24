@@ -918,14 +918,24 @@
             // --- Firebase Initialization and Auth Effect ---
             useEffect(() => {
                 try {
-                    const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-                    if (!firebaseConfigStr) {
-                         setNotification({ type: 'error', message: 'Firebase configuration is missing. App cannot start.' });
-                         setIsAuthReady(true);
-                         setIsLoading(false);
-                         return;
+                    // This configuration includes a fallback for demo environments.
+                    const firebaseConfig = typeof __firebase_config !== 'undefined'
+                        ? JSON.parse(__firebase_config)
+                        : {
+                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw", // Public key for demo
+                            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
+                            projectId: "dlv-warehouse-tracker",
+                            storageBucket: "dlv-warehouse-tracker.appspot.com",
+                            messagingSenderId: "267729758583",
+                            appId: "1:267729758583:web:f5f7ca26afc99c17819972"
+                        };
+
+                    if (!firebaseConfig?.apiKey) {
+                        setNotification({ type: 'error', message: 'Firebase configuration is invalid. App cannot start.' });
+                        setIsAuthReady(true);
+                        setIsLoading(false);
+                        return;
                     }
-                    const firebaseConfig = JSON.parse(firebaseConfigStr);
                     
                     const app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
