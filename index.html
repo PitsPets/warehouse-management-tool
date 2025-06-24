@@ -771,8 +771,8 @@
 
             if (isPreview) {
                 return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto print-this-modal">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto print:bg-transparent print:z-0 print:block">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8 print:shadow-none print:my-0 print:rounded-none">
                              <div className="p-8">
                                 {content}
                              </div>
