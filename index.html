@@ -1,738 +1,318 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warehouse Management</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Google Fonts: Inter -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Warehouse Management</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
-        import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
-        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
-        window.getStorage=getStorage; window.ref=ref; window.uploadBytes=uploadBytes; window.getDownloadURL=getDownloadURL;
-    </script>
+<!-- Use the latest modular Firebase SDK and attach functions directly to window -->
+<script type="module">
+import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
+import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
+import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
+</script>
 
-    <!-- PDF & Charting Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
+<!-- PDF & Charting Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="antialiased bg-gray-100">
-    <div id="root"></div>
+<body>
+<div id="root"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
 
-        // --- Firebase Globals (initialized in App component) ---
-        let db, auth, storage;
+// --- Firebase Globals (initialized in App component) ---
+let db, auth;
 
-        // --- Utility Functions ---
-        const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
+// --- Utility Functions ---
+const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        // --- UI Components ---
-        const Spinner = ({ text = "Loading..." }) => (
-            <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 z-[999]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                <p className="mt-4 text-gray-500">{text}</p>
-            </div>
-        );
+// --- UI Components ---
+const Spinner = ({ text = "Loading..." }) => (
+<div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 z-[999]">
+<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+<p className="mt-4 text-gray-500">{text}</p>
+</div>
+);
 
-        const Modal = ({ children, onClose, size = 'md' }) => {
-            const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300 animate-scale-in">
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300`}>
-                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                        {children}
-                    </div>
-                </div>
-            );
-        };
-        
-        const NotificationModal = ({ message, type, onClose }) => {
-             const colors = {
-                success: 'bg-green-100 border-green-500 text-green-700',
-                error: 'bg-red-100 border-red-500 text-red-700',
-                info: 'bg-blue-100 border-blue-500 text-blue-700',
-            };
-            const btnColors = {
-                success: 'bg-green-600 hover:bg-green-700',
-                error: 'bg-red-600 hover:bg-red-700',
-                info: 'bg-blue-600 hover:bg-blue-700',
-            }
-            return (
-                <Modal onClose={onClose} size="sm">
-                    <div className="text-center">
-                        <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
-                            <p className="font-medium">{message}</p>
-                        </div>
-                        <button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
-                    </div>
-                </Modal>
-            );
-        };
+const Modal = ({ children, onClose, size = 'md' }) => {
+const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+return (
+<div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 transition-opacity duration-300 animate-scale-in">
+<div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300`}>
+<button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
+<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+</button>
+{children}
+</div>
+</div>
+);
+};
 
-        const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel' }) => {
-            if (!isOpen) return null;
-            return (
-                <Modal onClose={onClose} size="sm">
-                    <div className="text-center">
-                        <h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3>
-                        <div className="flex justify-center gap-4">
-                            <button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">{cancelText}</button>
-                            <button onClick={onConfirm} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">{confirmText}</button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        // --- Widget & Form Components ---
-        const DashboardCards = ({ inventory, receipts }) => {
-            const totalListedItems = inventory.length;
-            const totalWarehouseValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
-            const totalItemsOut = receipts.reduce((sum, receipt) => sum + receipt.items.reduce((itemSum, item) => itemSum + item.dispatchQty, 0), 0);
+const NotificationModal = ({ message, type, onClose }) => {
+const colors = {
+success: 'bg-green-100 border-green-500 text-green-700',
+error: 'bg-red-100 border-red-500 text-red-700',
+info: 'bg-blue-100 border-blue-500 text-blue-700',
+};
+const btnColors = {
+success: 'bg-green-600 hover:bg-green-700',
+error: 'bg-red-600 hover:bg-red-700',
+info: 'bg-blue-600 hover:bg-blue-700',
+}
+return (
+<Modal onClose={onClose} size="sm">
+<div className="text-center">
+<div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
+<p className="font-medium">{message}</p>
+</div>
+<button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
+</div>
+</Modal>
+);
+};
 
-            return (
-                <main className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
-                        <p className="text-lg text-gray-500 mb-2">Total Listed Items</p>
-                        <p className="text-5xl font-extrabold text-blue-600">{totalListedItems}</p>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
-                         <p className="text-lg text-gray-500 mb-2">Total Items Out</p>
-                         <p className="text-5xl font-extrabold text-red-600">{totalItemsOut}</p>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center text-center">
-                         <p className="text-lg text-gray-500 mb-2">Total Warehouse Value</p>
-                         <p className="text-4xl font-extrabold text-green-600">{formatCurrency(totalWarehouseValue)}</p>
-                    </div>
-                </main>
-            );
-        };
-        
-        const LowStockNotification = ({ inventory, settings, onClick }) => {
-            const lowStockItems = inventory.filter(item => Number(item.qty) <= Number(item.reorderLevel || settings.reorderLevel));
-            if (lowStockItems.length === 0) return null;
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel' }) => {
+if (!isOpen) return null;
+return (
+<Modal onClose={onClose} size="sm">
+<div className="text-center">
+<h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3>
+<div className="flex justify-center gap-4">
+<button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">{cancelText}</button>
+<button onClick={onConfirm} className="px-6 py-2 text-white bg-red-600 rounded-full hover:bg-red-700">{confirmText}</button>
+</div>
+</div>
+</Modal>
+);
+};
 
-            return (
-                <section onClick={onClick} className="bg-yellow-500 text-white p-5 rounded-xl shadow-lg flex items-center justify-between cursor-pointer transform transition-transform duration-200 hover:scale-[1.01] mb-6">
-                    <div className="flex items-center">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.542 2.705-1.542 3.47 0l5.58 11.25c.38 .766-.117 1.655-.954 1.655H3.24c-.837 0-1.334-.889-.954-1.655L8.257 3.099zM10 7a1 1 0 011 1v4a1 1 0 11-2 0V8a1 1 0 011-1zm1 9a1 1 0 10-2 0 1 1 0 002 0z" clipRule="evenodd" />
-                         </svg>
-                         <span className="text-2xl font-semibold">{`Attention: ${lowStockItems.length} item(s) are low in stock!`}</span>
-                    </div>
-                    <span className="text-3xl font-bold rounded-full bg-yellow-600 px-4 py-2">{lowStockItems.length}</span>
-                </section>
-            );
-        };
+// --- Widget & Form Components ---
 
-        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
-            const filteredInventory = inventory.filter(item => 
-                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-            );
+const StatsWidget = ({ inventory }) => {
+const totalItems = inventory.length;
+const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+const stats = [
+{ name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
+{ name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
+{ name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
+];
+return (
+<div className="bg-white rounded-2xl shadow-lg p-6">
+<h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+{stats.map(stat => (
+<div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
+<div className="text-2xl">{stat.icon}</div>
+<div>
+<p className="text-sm text-gray-500">{stat.name}</p>
+<p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+</div>
+</div>
+))}
+</div>
+</div>
+);
+};
 
-            return (
-                <div className="bg-white p-6 rounded-xl shadow-lg lg:col-span-2">
-                    <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
-                        <h3 className="text-2xl font-bold text-gray-800">Current Inventory Overview</h3>
-                        <div className="relative w-full sm:w-64">
-                            <input type="text" placeholder="Search by SKU, name..." className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:ring-2 focus:ring-blue-300" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                        </div>
-                    </div>
-                    {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="overflow-y-auto border-t border-b border-gray-200" style={{maxHeight: '400px'}}>
-                            <table className="w-full text-left table-auto">
-                                <thead className="sticky top-0 bg-gray-50 z-10">
-                                    <tr className="border-b-2 border-gray-200">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Description</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Brand</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Current Stock</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Min Stock</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-center">Actions</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) < reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-yellow-50' : ''}`}>
-                                                <td className="p-4 font-mono text-sm text-gray-700">{item.sku}</td>
-                                                <td className="p-4 font-medium text-gray-800">{item.name}</td>
-                                                <td className="p-4 text-gray-600">{item.brand}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className="p-4 text-gray-600">{item.reorderLevel}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-center space-x-2">
-                                                        <button onClick={() => onEdit(item)} className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm px-3 py-1 rounded-md transition-colors duration-200" title="Edit Item">Edit</button>
-                                                        <button onClick={() => onDelete(item.id, item.name)} className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded-md transition-colors duration-200" title="Delete Item">Remove</button>
-                                                    </td>
-                                                )}
-                                            </tr>
-                                        )
-                                    }) : (
-                                        <tr><td colSpan={isAdminMode ? "7" : "6"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add new items via "Manage Stock".`}</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-        
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
-            const [isSaving, setIsSaving] = useState(false);
+const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
+const filteredInventory = inventory.filter(item => 
+(item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+(item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+(item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+);
 
-            useEffect(() => {
-                if (currentItem) {
-                    setItem(currentItem);
-                } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
-                }
-            }, [currentItem]);
+return (
+<div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
+<div className="flex flex-wrap gap-4 justify-between items-center mb-4">
+<h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
+<div className="relative w-full sm:w-64">
+<input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+<svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+</div>
+</div>
+{isLoading ? <Spinner text="Loading inventory..." /> : (
+<div className="overflow-x-auto -mx-6">
+<table className="w-full text-left table-auto">
+<thead>
+<tr className="border-b-2 border-gray-100">
+<th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+<th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+<th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+<th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
+<th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
+</tr>
+</thead>
+<tbody>
+{filteredInventory.length > 0 ? filteredInventory.map(item => {
+const reorder = Number(item.reorderLevel || settings.reorderLevel);
+const isLowStock = Number(item.qty) < reorder;
+return (
+<tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-red-50' : ''}`}>
+<td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+<td className="p-4">
+<p className="font-medium text-gray-800">{item.name}</p>
+<p className="text-sm text-gray-500">{item.brand}</p>
+</td>
+<td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+<td className={`p-4 font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-600'}`}>{item.qty}</td>
+<td className="p-4 text-right">
+<div className="flex justify-end gap-1">
+{isAdminMode && <>
+<button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+<button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+<button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+</>}
+</div>
+</td>
+</tr>
+)
+}) : (
+<tr><td colSpan="5" className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
+)}
+</tbody>
+</table>
+</div>
+)}
+</div>
+);
+};
 
-            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
-            
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!item.name || !item.sku) {
-                    setNotification({type: 'error', message: 'SKU and Name are required.'});
-                    return;
-                }
-                setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
-            };
+const LogsWidget = ({ isLoading, appId }) => {
+const [logs, setLogs] = useState([]);
+useEffect(() => {
+if (!db || !appId) return;
+const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
+const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+(error) => console.error("Error fetching logs:", error));
+return () => unsub();
+}, [appId]);
 
-            return (
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
-                    <div><label className="block text-sm font-bold text-gray-700">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 bg-gray-100" readOnly /></div>
-                    <div><label className="block text-sm font-bold text-gray-700">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-bold text-gray-700">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
-                        <div><label className="block text-sm font-bold text-gray-700">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-bold text-gray-700">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
-                        <div><label className="block text-sm font-bold text-gray-700">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>
-                    </div>
-                    { !currentItem && <div><label className="block text-sm font-bold text-gray-700">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" /></div>}
-                    <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-6 rounded-full">Cancel</button>
-                        <button type="submit" disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-full flex items-center gap-2 disabled:bg-green-300">
-                           {isSaving ? 'Saving...' : (currentItem ? 'Update Item' : 'Add Item')}
-                        </button>
-                    </div>
-                </form>
-            );
-        };
-        
+return (
+<div className="bg-white rounded-2xl shadow-lg p-6">
+<h3 className="text-lg font-bold text-gray-800 mb-4">Activity Logs</h3>
+{isLoading ? <Spinner text="Loading logs..." /> : logs.length > 0 ? (
+<ul className="space-y-3 h-64 overflow-y-auto pr-2">
+{logs.map(log => (
+<li key={log.id} className="text-sm">
+<p className="font-medium text-gray-700">
+{log.action} by <span className="text-indigo-600">{log.user || 'System'}</span>: <span className="font-normal text-gray-600">{log.details}</span>
+</p>
+<p className="text-xs text-gray-400">{log.timestamp?.toDate().toLocaleString()}</p>
+</li>
+))}
+</ul>
+) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}
+</div>
+);
+};
+
+const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
+const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
+const [isSaving, setIsSaving] = useState(false);
+
+useEffect(() => {
+if (currentItem) {
+setItem(currentItem);
+} else {
+setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+}
+}, [currentItem]);
+
+const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+const handleSubmit = async (e) => {
+e.preventDefault();
+if (!item.name || !item.sku) {
+setNotification({type: 'error', message: 'SKU and Name are required.'});
+return;
+}
+setIsSaving(true);
+await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
+setIsSaving(false);
+};
+
+return (
+<form onSubmit={handleSubmit} className="space-y-4">
+<h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
+<div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg bg-gray-100" readOnly /></div>
+<div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+<div className="grid grid-cols-2 gap-4">
+<div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+<div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+</div>
+<div className="grid grid-cols-2 gap-4">
+<div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+<div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+</div>
+{ !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
+<div className="flex justify-end gap-4 pt-4">
+<button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+<button type="submit" disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+{isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+{isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
+</button>
+</div>
+</form>
+);
+};
+
+        const AdminLoginModal = ({ onLogin, setNotification }) => {
         const AdminLoginModal = ({ onLogin }) => {
-            const [password, setPassword] = useState('');
-            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
-            return (
-                <Modal onClose={() => {}} size="sm">
-                    <form onSubmit={handleSubmit} className="space-y-4 text-center">
-                        <h2 className="text-3xl font-bold text-gray-800 mb-6">Admin Login</h2>
-                        <div className="mb-4">
-                            <label className="block text-gray-700 text-sm font-bold mb-2">Password:</label>
-                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" autoFocus />
-                        </div>
-                        <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-md w-full">Login</button>
-                    </form>
-                </Modal>
-            );
-        };
-        
-        const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
-            const [adjustment, setAdjustment] = useState(0);
-            const [isSaving, setIsSaving] = useState(false);
+const [password, setPassword] = useState('');
+const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
+return (
+@@ -472,7 +472,12 @@
+<input type="text" placeholder="Search by SKU or name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+{searchResults.length > 0 && (
+<ul className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                        {searchResults.map(i => <li key={i.id} onClick={() => addItem(i)} className="p-2 hover:bg-indigo-100 cursor-pointer">{i.name} ({i.sku}) - Stock: {i.qty}</li>)}
+                                        {searchResults.map(i => 
+                                            <li key={i.id} className="p-2 flex justify-between items-center hover:bg-gray-100">
+                                                <span>{i.name} ({i.sku}) - Stock: {i.qty}</span>
+                                                <button onClick={() => addItem(i)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600">Add</button>
+                                            </li>
+                                        )}
+</ul>
+)}
+</div>
+@@ -487,7 +492,7 @@
+<td className="p-2 text-xs">{item.sku}</td>
+<td className="p-2">{item.name}</td>
+<td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateItemQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500">X</button></td>
+                                            <td className="p-2"><button onClick={() => removeItem(item.id)} className="text-red-500 font-bold">X</button></td>
+</tr>
+)) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+</tbody>
+@@ -916,20 +921,20 @@
 
-            const handleSave = async () => {
-                if (adjustment === 0) {
-                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
-                     return;
-                }
-                setIsSaving(true);
-                await onAdjust(item, adjustment);
-                setIsSaving(false);
-            }
-
-            return (
-                 <Modal onClose={onClose} size="md">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
-                        <div>
-                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
-                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
-                        </div>
-                        <div>
-                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                           <input 
-                                type="number" 
-                                value={adjustment} 
-                                onChange={(e) => setAdjustment(Number(e.target.value))} 
-                                className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                                autoFocus
-                            />
-                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
-                        </div>
-                        <div className="flex justify-end gap-4 pt-4">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
-                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-
-        const DrSettingsForm = ({ drSettings, onSave, onClose, setNotification }) => {
-            const [settings, setSettings] = useState(drSettings);
-            const [logoFile, setLogoFile] = useState(null);
-            const [logoPreview, setLogoPreview] = useState(drSettings.companyLogoUrl);
-            const [isSaving, setIsSaving] = useState(false);
-
-            useEffect(() => {
-                setSettings(drSettings);
-                setLogoPreview(drSettings.companyLogoUrl);
-            }, [drSettings]);
-
-            const handleChange = (e) => {
-                setSettings(prev => ({...prev, [e.target.name]: e.target.value}));
-            };
-
-            const handleFileChange = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    if (file.size > 2 * 1024 * 1024) { // 2MB limit
-                        setNotification({ type: 'error', message: 'Logo file size cannot exceed 2MB.' });
-                        return;
-                    }
-                    setLogoFile(file);
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        setLogoPreview(reader.result);
-                    };
-                    reader.readAsDataURL(file);
-                }
-            };
-            
-            const handleSave = async () => {
-                setIsSaving(true);
-                await onSave(settings, logoFile);
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="lg">
-                    <div className="space-y-6">
-                        <h2 className="text-3xl font-bold text-gray-800 text-center">Delivery Receipt Company Settings</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-gray-700 text-sm font-bold mb-2">Company Logo:</label>
-                                <input type="file" accept="image/*" onChange={handleFileChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
-                                <div className="mt-2 text-center">
-                                    <img src={logoPreview || 'https://placehold.co/150x50/cccccc/000000?text=Logo+Preview'} alt="Logo Preview" className="mx-auto border border-gray-300 rounded-md p-1" style={{maxWidth: '150px', maxHeight: '100px'}} />
-                                </div>
-                            </div>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-gray-700 text-sm font-bold mb-2">Company Name:</label>
-                                    <input type="text" name="companyName" value={settings.companyName || ''} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
-                                </div>
-                                <div>
-                                    <label className="block text-gray-700 text-sm font-bold mb-2">Company Contact:</label>
-                                    <input type="text" name="companyContact" value={settings.companyContact || ''} onChange={handleChange} className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700" />
-                                </div>
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="block text-gray-700 text-sm font-bold mb-2">Company Address:</label>
-                                <textarea name="companyAddress" value={settings.companyAddress || ''} onChange={handleChange} rows="3" className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700"></textarea>
-                            </div>
-                        </div>
-                        <button onClick={handleSave} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-md w-full">
-                            {isSaving ? 'Saving...' : 'Save DR Settings'}
-                        </button>
-                    </div>
-                </Modal>
-            )
-        };
-        
-        // --- Main App Component ---
-        function App() {
-            // --- State Declarations ---
-            const [user, setUser] = useState(null);
-            const [isAuthReady, setIsAuthReady] = useState(false);
-            const [isAdminMode, setIsAdminMode] = useState(false);
-            const [inventory, setInventory] = useState([]);
-            const [sites, setSites] = useState([]);
-            const [receipts, setReceipts] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10 });
-            const [drSettings, setDrSettings] = useState({ companyName: '', companyAddress: '', companyContact: '', companyLogoUrl: '' });
-            const [isLoading, setIsLoading] = useState(true);
-            const [modal, setModal] = useState(null);
-            const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [itemToDelete, setItemToDelete] = useState(null);
-            
-            // --- Global App ID ---
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-            // --- Firebase Initialization and Auth Effect ---
-            useEffect(() => {
-                try {
-                    const firebaseConfig = typeof __firebase_config !== 'undefined' 
-                        ? JSON.parse(__firebase_config) 
-                        : { 
-                            apiKey: "YOUR_API_KEY",
-                            authDomain: "YOUR_AUTH_DOMAIN",
-                            projectId: "YOUR_PROJECT_ID",
-                            storageBucket: "YOUR_STORAGE_BUCKET",
-                            messagingSenderId: "YOUR_SENDER_ID",
-                            appId: "YOUR_APP_ID",
-                          };
-                    
-                    const app = initializeApp(firebaseConfig);
-                    auth = getAuth(app);
-                    db = getFirestore(app);
-                    storage = getStorage(app);
-
-                    const unsubscribe = onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            setUser(user);
-                            setIsAuthReady(true);
-                        } else {
-                            const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                            const signInPromise = authToken 
-                                ? signInWithCustomToken(auth, authToken) 
-                                : signInAnonymously(auth);
-
-                            signInPromise.catch(e => {
-                                console.error("Sign-in failed", e);
-                                setNotification({type: 'error', message: `Authentication failed: ${e.message}`});
-                                setIsAuthReady(true);
-                            });
-                        }
-                    });
-                    return () => unsubscribe();
-                } catch (e) {
-                    console.error("CRITICAL: Firebase initialization failed.", e);
-                    setNotification({ type: 'error', message: 'Failed to initialize backend services. App cannot function.' });
-                    setIsAuthReady(true); 
-                }
-            }, []);
-
-            // --- Data Fetching Effect ---
-            useEffect(() => {
-                if (!isAuthReady || !user) return; 
-                
-                setIsLoading(true);
-                const basePath = `artifacts/${appId}/public/data`;
-                
-                const unsubs = [
-                    onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Inventory snapshot error:", err)),
-                    onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err)),
-                    onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err)),
-                    onSnapshot(doc(db, `${basePath}/settings/general`), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } }, err => console.error("Settings snapshot error:", err)),
-                    onSnapshot(doc(db, `${basePath}/settings/dr_company_details`), (d) => { if (d.exists()) { setDrSettings(d.data()); } }, err => console.error("DR Settings snapshot error:", err))
-                ];
-
-                setIsLoading(false);
-                return () => unsubs.forEach(unsub => unsub());
-            }, [isAuthReady, user, appId]);
-            
-            // --- Helper to log actions ---
-             const logAction = async (action, details) => {
-                if(!db) return;
-                try {
-                    await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
-                        timestamp: serverTimestamp(), 
-                        action, 
-                        details, 
-                        user: isAdminMode ? 'Admin' : 'User' 
-                    });
-                } catch (error) {
-                    console.error("Failed to log action:", error);
-                }
-            };
-
-            // --- Handlers ---
-            const handleAdminLogin = (password) => {
-                if (password === settings.adminPass) {
-                    setIsAdminMode(true);
-                    closeModal();
-                    setNotification({type: 'success', message: 'Admin mode unlocked!'});
-                } else {
-                    setNotification({type: 'error', message: 'Incorrect admin password.'});
-                }
-            };
-            
-            const handleSaveDrSettings = async (settingsData, logoFile) => {
-                const settingsRef = doc(db, `artifacts/${appId}/public/data/settings`, 'dr_company_details');
-                try {
-                    if (logoFile) {
-                        const logoRef = ref(storage, `artifacts/${appId}/public/logos/company_logo`);
-                        await uploadBytes(logoRef, logoFile);
-                        const downloadURL = await getDownloadURL(logoRef);
-                        settingsData.companyLogoUrl = downloadURL;
-                    }
-                    await setDoc(settingsRef, settingsData, { merge: true });
-                    setNotification({ type: 'success', message: 'DR Settings saved successfully!' });
-                    await logAction('DR Settings Updated', 'Company details for DR updated.');
-                    closeModal();
-                } catch (error) {
-                    console.error("DR Settings save failed:", error);
-                    setNotification({ type: 'error', message: `Failed to save DR settings: ${error.message}` });
-                }
-            };
-            
-             const handleSaveItem = async (itemData) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const isEditing = !!currentItem?.id;
-
-                try {
-                    if (isEditing) {
-                        const itemRef = doc(db, path, currentItem.id);
-                        await updateDoc(itemRef, { ...itemData, updatedAt: serverTimestamp() });
-                        await logAction('Item Updated', `${itemData.name} (${itemData.sku})`);
-                        setNotification({type: 'success', message: 'Item updated successfully!'});
-                    } else {
-                        await addDoc(collection(db, path), { ...itemData, createdAt: serverTimestamp() });
-                        await logAction('Item Added', `${itemData.name} (${itemData.sku})`);
-                        setNotification({type: 'success', message: 'New item added to inventory!'});
-                    }
-                    closeModal();
-                } catch (e) {
-                    console.error("Save error:", e);
-                    setNotification({type: 'error', message: `Failed to save item: ${e.message}`});
-                }
-            };
-
-            const confirmDeleteItem = (id, name) => setItemToDelete({ id, name });
-            
-            const handleDeleteItem = async () => {
-                if (!itemToDelete) return;
-                const path = `artifacts/${appId}/public/data/inventory`;
-                try {
-                    await deleteDoc(doc(db, path, itemToDelete.id));
-                    await logAction('Item Deleted', `Deleted item "${itemToDelete.name}"`);
-                    setNotification({type: 'success', message: 'Item successfully deleted.'});
-                } catch (e) {
-                    console.error("Delete error:", e);
-                    setNotification({type: 'error', message: `Failed to delete item: ${e.message}`});
-                } finally {
-                    setItemToDelete(null); // Close confirmation modal
-                }
-            };
-
-            const handleAdjustStock = async (item, adjustment) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const newQty = item.qty + adjustment;
-                if (newQty < 0) {
-                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."});
-                     return;
-                }
-                try {
-                    const itemRef = doc(db, path, item.id);
-                    await updateDoc(itemRef, { qty: increment(adjustment) });
-                    await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
-                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
-                    closeModal();
-                } catch (e) {
-                    console.error("Stock adjustment error:", e);
-                    setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`});
-                }
-            };
-
-            const handleAddSite = async (newSite) => {
-                const path = `artifacts/${appId}/public/data/sites`;
-                 try {
-                    await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
-                    setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
-                    await logAction('Site Added', `New site created: ${newSite.name}`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
-                }
-            };
-            
-            const handleSaveSettings = async (newSettings) => {
-                const path = `artifacts/${appId}/public/data/settings`;
-                 try {
-                    await setDoc(doc(db, path, 'general'), newSettings);
-                    await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                    setNotification({type: 'success', message: 'Settings saved successfully!'});
-                    closeModal();
-                } catch (e) {
-                     console.error("Settings save error:", e);
-                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
-                }
-            };
-
-            const handleSaveReceipt = async (receiptData) => {
-                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
-                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
-
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const siteDoc = await transaction.get(siteRef);
-                        if (!siteDoc.exists()) throw "Selected site does not exist.";
-
-                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
-                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
-
-                        // Check stock and prepare inventory updates
-                        for (const item of receiptData.items) {
-                            const invItemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                            const invItemDoc = await transaction.get(invItemRef);
-                            if (!invItemDoc.exists() || invItemDoc.data().qty < item.dispatchQty) {
-                                throw `Insufficient stock for ${item.name}. Available: ${invItemDoc.data().qty}, Required: ${item.dispatchQty}.`;
-                            }
-                            transaction.update(invItemRef, { qty: increment(-item.dispatchQty) });
-                        }
-
-                        // Create the receipt
-                        transaction.set(doc(receiptsCollectionRef), {
-                            ...receiptData,
-                            drNumber: drNumberString,
-                            siteName: siteDoc.data().name,
-                            createdAt: serverTimestamp(),
-                            companyDetails: drSettings // Save a snapshot of company settings with the DR
-                        });
-                        
-                        // Update the site's DR number
-                        transaction.update(siteRef, { lastDrNumber: increment(1) });
-                    });
-                    
-                    setNotification({ type: 'success', message: 'Delivery receipt saved successfully!'});
-                    await logAction('Receipt Created', `DR for site ${receiptData.siteId} saved.`);
-                    closeModal();
-
-                } catch (error) {
-                    console.error("Receipt save transaction failed: ", error);
-                    setNotification({ type: 'error', message: `Failed to save receipt: ${error}` });
-                }
-            };
-
-            const openModal = (type, item = null) => {
-                setCurrentItem(item);
-                setModal(type);
-            };
-
-            const closeModal = () => {
-                setModal(null);
-                setCurrentItem(null);
-            };
-
-            // --- Render Logic ---
-            if (!isAuthReady) return <Spinner text="Initializing..." />;
-            
-            return (
-                <div className="container mx-auto px-4 max-w-6xl w-full">
-                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); body { font-family: 'Inter', sans-serif; } @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}.animate-scale-in{animation:scale-in .2s ease-out forwards} .no-print{display:revert;} @media print{body *{visibility:hidden!important}.printable-area,.printable-area *{visibility:visible!important}.printable-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:20px!important;background:white!important;color:black!important;}.no-print{display:none!important}}`}</style>
-                    <header className="text-center my-10 no-print">
-                         <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 mb-2">Warehouse Management</h1>
-                         <p className="text-xl text-gray-600">Electrical Supplies Overview</p>
-                    </header>
-
-                    <div className="no-print">
-                        <DashboardCards inventory={inventory} receipts={receipts} />
-                        <LowStockNotification inventory={inventory} settings={settings} onClick={() => openModal('low_stock')} />
-                    </div>
-
-                    <div className="flex flex-wrap justify-center gap-6 mb-10 no-print">
-                        <button onClick={() => openModal('stock')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300">
-                             Manage Stock
-                        </button>
-                         <button onClick={() => openModal('receipt')} className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-300">
-                             Create Delivery
-                         </button>
-                         <button onClick={() => openModal('logs')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-300">
-                             Activity Logs
-                         </button>
-                         <button onClick={() => openModal('dr_history')} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-purple-300">
-                             View Delivery Receipts
-                         </button>
-                         {isAdminMode && (
-                             <>
-                             <button onClick={() => openModal('dr_settings')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300">
-                                 DR Settings
-                             </button>
-                             <button onClick={() => openModal('sites')} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-emerald-300">
-                                 Manage Sites
-                             </button>
-                            </>
-                         )}
-                         <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-blue-800 hover:bg-blue-900 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-400">
-                            {isAdminMode ? 'Logout (Admin)' : 'Login (Admin)'}
-                         </button>
-                    </div>
-
-                    <section className="bg-white p-6 rounded-xl shadow-lg mb-10 no-print">
-                        <AllInventoryWidget 
-                            inventory={inventory}
-                            onEdit={(item) => openModal('item', item)} 
-                            onDelete={confirmDeleteItem} 
-                            onAdjustStock={(item) => openModal('stock_adjust', item)} 
-                            isLoading={isLoading} 
-                            searchTerm={searchTerm} 
-                            setSearchTerm={setSearchTerm} 
-                            isAdminMode={isAdminMode}
-                            settings={settings} 
-                        />
-                    </section>
-
-
-                    {/* --- Modals Layer --- */}
-                    {notification && <NotificationModal message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
-                    
-                    <ConfirmationModal 
-                        isOpen={!!itemToDelete}
-                        onClose={() => setItemToDelete(null)}
-                        onConfirm={handleDeleteItem}
-                        message={`Are you sure you want to permanently delete "${itemToDelete?.name}"? This action cannot be undone.`}
-                    />
-
-                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
-                    {modal === 'stock_adjust' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
+{modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
+{modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} />}
-                    {modal === 'dr_settings' && <DrSettingsForm drSettings={drSettings} onSave={handleSaveDrSettings} onClose={closeModal} setNotification={setNotification} />}
+{modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
+{modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} />}
+{modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} />}
+{modal === 'dr_history' && <ReceiptHistoryModal receipts={receipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} />}
+{modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} />}
 
-                </div>
-            );
-        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+</div>
+);
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
 </body>
 </html>
