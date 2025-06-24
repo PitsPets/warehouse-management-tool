@@ -1056,7 +1056,8 @@
                 try {
                      await runTransaction(db, async (transaction) => {
                         const settingsDoc = await transaction.get(settingsRef);
-                        const newOrderNumber = (settingsDoc.data()?.lastOrderNumber || 0) + 1;
+                        const lastOrderNumber = settingsDoc.exists() ? settingsDoc.data().lastOrderNumber || 0 : 0;
+                        const newOrderNumber = lastOrderNumber + 1;
                         const orderNumberString = `REQ-${String(newOrderNumber).padStart(5, '0')}`;
                         
                         transaction.set(doc(orderCollectionRef), {
@@ -1066,7 +1067,8 @@
                             createdAt: serverTimestamp()
                         });
                         
-                        transaction.update(settingsRef, { lastOrderNumber: newOrderNumber });
+                        // Use set with merge to create the doc if it doesn't exist.
+                        transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
                      });
                      
                      setNotification({type: 'success', message: 'Your order has been submitted!'});
@@ -1135,7 +1137,10 @@
             };
 
             const handleVoidReceipt = async (receipt) => {
-                if(!receipt || receipt.status !== 'Active') return;
+                if (!receipt || receipt.status !== 'Active') {
+                    setReceiptToVoid(null);
+                    return;
+                }
                 try {
                      await runTransaction(db, async (transaction) => {
                         const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
@@ -1150,11 +1155,12 @@
                     });
                     await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
                     setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
+                    closeModal(); // Close the main DR Manager modal on success
                 } catch(e) {
                     console.error("Void receipt transaction failed:", e);
                     setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`});
                 } finally {
-                    setReceiptToVoid(null);
+                    setReceiptToVoid(null); // Always close the confirmation modal
                 }
             };
             
