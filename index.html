@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Use the latest modular Firebase SDK -->
     <script type="module">
         import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
         import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -391,7 +390,7 @@
                             <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
                             <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
                          </div>
-                          <div>
+                         <div>
                             <label className="block text-sm font-medium">Default Reorder Level</label>
                             <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
                             <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
@@ -529,13 +528,13 @@
                         <div className="lg:col-span-2 space-y-4">
                             <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                    <option value="">-- Select Site --</option>
-                                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                                <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                                <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
-                            </div>
+                                 <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                     <option value="">-- Select Site --</option>
+                                     {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                 </select>
+                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                                 <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
+                             </div>
                             <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[40vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
@@ -616,47 +615,47 @@
                          <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
                              {Object.entries(groupedDocuments).map(([groupName, docs]) => (
                                  <div key={groupName} className="mb-8">
-                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                     {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
                                      <table className="w-full text-left">
                                          <thead className="sticky top-0 bg-gray-50 z-10">
-                                            <tr>
-                                                <th className="p-3">Number</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Identifier</th>
-                                                <th className="p-3">Items</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
+                                             <tr>
+                                                 <th className="p-3">Number</th>
+                                                 <th className="p-3">Date</th>
+                                                 <th className="p-3">Identifier</th>
+                                                 <th className="p-3">Items</th>
+                                                 <th className="p-3">Status</th>
+                                                 <th className="p-3 text-right">Actions</th>
+                                             </tr>
+                                         </thead>
                                          <tbody>
                                              {docs.map(doc => {
-                                                const getStatusClass = (status) => {
-                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                    return 'text-gray-500 bg-gray-100';
-                                                }
-                                                return (
-                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                     <td className="p-3">{doc.items.length}</td>
-                                                     <td className="p-3">
-                                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                            {doc.status || 'Active'}
-                                                        </span>
-                                                     </td>
-                                                     <td className="p-3 text-right">
-                                                        <div className="flex gap-2 justify-end">
-                                                            <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                            {actions.map(action => (
-                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                            ))}
-                                                        </div>
-                                                     </td>
-                                                 </tr>
-                                                )
+                                                 const getStatusClass = (status) => {
+                                                     if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                     if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                     if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                     return 'text-gray-500 bg-gray-100';
+                                                 }
+                                                 return (
+                                                  <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                      <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                      <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                      <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                      <td className="p-3">{doc.items.length}</td>
+                                                      <td className="p-3">
+                                                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                              {doc.status || 'Active'}
+                                                          </span>
+                                                      </td>
+                                                      <td className="p-3 text-right">
+                                                          <div className="flex gap-2 justify-end">
+                                                              <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                              {actions.map(action => (
+                                                                   <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                              ))}
+                                                          </div>
+                                                      </td>
+                                                  </tr>
+                                                 )
                                              })}
                                          </tbody>
                                      </table>
@@ -695,104 +694,104 @@
             
             const content = (
                  <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
-                    {/* Header */}
-                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
-                        <div className="w-1/4">
-                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
-                        </div>
-                        <div className="w-3/4 text-right">
-                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
-                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
-                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
-                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
-                        </div>
-                    </div>
+                     {/* Header */}
+                     <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
+                         <div className="w-1/4">
+                             {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
+                         </div>
+                         <div className="w-3/4 text-right">
+                             <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
+                             <p className="text-sm">{effectiveTemplate.companyAddress}</p>
+                             <p className="text-sm">{effectiveTemplate.companyContact}</p>
+                             <p className="text-sm">{effectiveTemplate.companyEmail}</p>
+                         </div>
+                     </div>
 
-                    {/* Title */}
-                    <div className="text-center my-8">
-                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
-                    </div>
-                    
-                    {/* Customer & DR Info */}
-                    <div className="grid grid-cols-2 gap-8 mb-8">
-                        <div>
-                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
-                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
-                            <p>{receipt.address || 'N/A'}</p>
-                        </div>
-                        <div className="text-right">
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">No.:</span>
-                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
-                            </div>
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">Date:</span>
-                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
-                            </div>
-                            {receipt.drNumber && 
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">Site:</span>
-                                    <span className="text-right">{receipt.siteName}</span>
-                                </div>
-                            }
-                        </div>
-                    </div>
+                     {/* Title */}
+                     <div className="text-center my-8">
+                         <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
+                     </div>
+                     
+                     {/* Customer & DR Info */}
+                     <div className="grid grid-cols-2 gap-8 mb-8">
+                         <div>
+                             <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
+                             <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                             <p>{receipt.address || 'N/A'}</p>
+                         </div>
+                         <div className="text-right">
+                             <div className="grid grid-cols-2">
+                                 <span className="font-bold">No.:</span>
+                                 <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
+                             </div>
+                             <div className="grid grid-cols-2">
+                                 <span className="font-bold">Date:</span>
+                                 <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
+                             </div>
+                             {receipt.drNumber && 
+                                 <div className="grid grid-cols-2">
+                                     <span className="font-bold">Site:</span>
+                                     <span className="text-right">{receipt.siteName}</span>
+                                 </div>
+                             }
+                         </div>
+                     </div>
 
-                    {/* Items Table */}
-                    <table className="w-full text-left text-sm table-auto border-collapse">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                <th className="p-2 border">Qty</th>
-                                <th className="p-2 border">Unit</th>
-                                <th className="p-2 border">Description</th>
-                                <th className="p-2 border text-right">Unit Price</th>
-                                <th className="p-2 border text-right">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {receipt.items.map(item => (
-                                <tr key={item.id} className="border-b">
-                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">pcs</td>
-                                    <td className="p-2 border">({item.sku}) {item.name}</td>
-                                    <td className="p-2 border text-right">{formatCurrency(item.price)}</td>
-                                    <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                        <tfoot className="font-bold">
-                            <tr>
-                                <td colSpan="4" className="p-2 border text-right">Total Value:</td>
-                                <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
+                     {/* Items Table */}
+                     <table className="w-full text-left text-sm table-auto border-collapse">
+                         <thead className="bg-gray-100">
+                             <tr>
+                                 <th className="p-2 border">Qty</th>
+                                 <th className="p-2 border">Unit</th>
+                                 <th className="p-2 border">Description</th>
+                                 <th className="p-2 border text-right">Unit Price</th>
+                                 <th className="p-2 border text-right">Total</th>
+                             </tr>
+                         </thead>
+                         <tbody>
+                             {receipt.items.map(item => (
+                                 <tr key={item.id} className="border-b">
+                                     <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
+                                     <td className="p-2 border">pcs</td>
+                                     <td className="p-2 border">({item.sku}) {item.name}</td>
+                                     <td className="p-2 border text-right">{formatCurrency(item.price)}</td>
+                                     <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>
+                                 </tr>
+                             ))}
+                         </tbody>
+                         <tfoot className="font-bold">
+                             <tr>
+                                 <td colSpan="4" className="p-2 border text-right">Total Value:</td>
+                                 <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                             </tr>
+                         </tfoot>
+                     </table>
 
-                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
-                    
-                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
-                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
-                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
-                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
-                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
-                    </div>
-                </div>
+                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
+                     
+                     <div className="mt-24 grid grid-cols-2 gap-16 text-center">
+                         {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
+                         {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
+                         {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
+                         {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                     </div>
+                 </div>
             );
 
 
             if (isPreview) {
                  return (
                      <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
                              <div className="p-8">
-                                {content}
+                                 {content}
                              </div>
                              <div className="flex justify-end gap-4 p-4 border-t no-print">
                                  <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
                                  <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
                              </div>
-                        </div>
-                    </div>
+                         </div>
+                     </div>
                  )
             }
 
@@ -1028,9 +1027,9 @@
 
             return (
                  <Modal onClose={onClose} size="7xl">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                         {/* Item List & Header */}
-                        <div className="lg:col-span-2 space-y-4">
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                          {/* Item List & Header */}
+                         <div className="lg:col-span-2 space-y-4">
                              <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
                             <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[50vh] overflow-y-auto border rounded-lg">
@@ -1057,10 +1056,10 @@
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
+                         </div>
 
-                         {/* Restock Cart Column */}
-                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                          {/* Restock Cart Column */}
+                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
                             <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
                              <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
@@ -1075,7 +1074,7 @@
                                         )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added to restock list.</td></tr>}
                                     </tbody>
                                 </table>
-                            </div>
+                             </div>
                             <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                              <div className="flex justify-end gap-4 pt-4 border-t">
                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
@@ -1083,9 +1082,9 @@
                                      {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
                                  </button>
                              </div>
-                        </div>
-                    </div>
-                </Modal>
+                         </div>
+                     </div>
+                 </Modal>
             )
         };
 
@@ -1258,28 +1257,28 @@
                 const settingsRef = doc(db, `artifacts/${appId}/public/data/settings/general`);
                 try {
                      await runTransaction(db, async (transaction) => {
-                        const settingsDoc = await transaction.get(settingsRef);
-                        const lastOrderNumber = settingsDoc.exists() ? settingsDoc.data().lastOrderNumber || 0 : 0;
-                        const newOrderNumber = lastOrderNumber + 1;
-                        const orderNumberString = `REQ-${String(newOrderNumber).padStart(5, '0')}`;
-                        
-                        transaction.set(doc(orderCollectionRef), {
-                            ...orderData,
-                            orderNumber: orderNumberString,
-                            status: 'Pending',
-                            createdAt: serverTimestamp()
-                        });
-                        
-                        // Use set with merge to create the doc if it doesn't exist.
-                        transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
+                         const settingsDoc = await transaction.get(settingsRef);
+                         const lastOrderNumber = settingsDoc.exists() ? settingsDoc.data().lastOrderNumber || 0 : 0;
+                         const newOrderNumber = lastOrderNumber + 1;
+                         const orderNumberString = `REQ-${String(newOrderNumber).padStart(5, '0')}`;
+                         
+                         transaction.set(doc(orderCollectionRef), {
+                             ...orderData,
+                             orderNumber: orderNumberString,
+                             status: 'Pending',
+                             createdAt: serverTimestamp()
+                         });
+                         
+                         // Use set with merge to create the doc if it doesn't exist.
+                         transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
                      });
                      
                      setNotification({type: 'success', message: 'Your order has been submitted!'});
                      await logAction('Order Submitted', `By user ${orderData.requestedBy}`);
                      closeModal();
                 } catch (e) {
-                    console.error("User order save failed:", e);
-                    setNotification({type: 'error', message: `Failed to submit order: ${e.message}`});
+                     console.error("User order save failed:", e);
+                     setNotification({type: 'error', message: `Failed to submit order: ${e.message}`});
                 }
             };
             
@@ -1313,8 +1312,8 @@
                             const invItemDoc = itemDocs[i];
                             const requestedItem = receiptData.items[i];
                              if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
-                            }
+                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                             }
                         }
                         
                         // --- All WRITES last ---
@@ -1355,34 +1354,54 @@
                 }
                 try {
                      await runTransaction(db, async (transaction) => {
-                        // --- All READS first ---
-                        const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
-                        const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
-                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+                         // --- All READS first ---
+                         const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
+                         const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        // --- All WRITES last ---
-                        for (let i = 0; i < receipt.items.length; i++) {
-                            const itemRef = itemRefs[i];
-                            const itemDoc = itemDocs[i];
-                            if (itemDoc.exists()) {
-                                transaction.update(itemRef, { qty: increment(receipt.items[i].dispatchQty) });
-                            }
-                        }
-                        transaction.update(receiptRef, { status: 'Voided' });
-                    });
-                    
-                    await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
-                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
-                    setReceiptToVoid(null);
-                    closeModal(); 
+                         // --- All WRITES last ---
+                         for (let i = 0; i < receipt.items.length; i++) {
+                             const itemRef = itemRefs[i];
+                             const itemDoc = itemDocs[i];
+                             if (itemDoc.exists()) {
+                                 transaction.update(itemRef, { qty: increment(receipt.items[i].dispatchQty) });
+                             }
+                         }
+                         transaction.update(receiptRef, { status: 'Voided' });
+                     });
+                     
+                     await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
+                     setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
+                     setReceiptToVoid(null);
+                     closeModal(); 
                 } catch(e) {
-                    console.error("Void receipt transaction failed:", e);
-                    setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`});
-                    setReceiptToVoid(null);
+                     console.error("Void receipt transaction failed:", e);
+                     setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`});
+                     setReceiptToVoid(null);
                 }
             };
             
             // --- CRUD Handlers ---
+            const handleSaveItem = async (item) => {
+                const path = `artifacts/${appId}/public/data/inventory`;
+                try {
+                    if (item.id) { // Editing existing item
+                        const { id, ...itemData } = item;
+                        await updateDoc(doc(db, path, id), itemData);
+                        await logAction('Item Updated', `Updated item "${item.name}" (SKU: ${item.sku})`);
+                        setNotification({ type: 'success', message: 'Item successfully updated.' });
+                    } else { // Adding new item
+                        await addDoc(collection(db, path), item);
+                        await logAction('Item Added', `Added new item "${item.name}" (SKU: ${item.sku}) with initial quantity ${item.qty}`);
+                        setNotification({ type: 'success', message: 'Item successfully added.' });
+                    }
+                    closeModal();
+                } catch (e) {
+                    console.error("Save item error:", e);
+                    setNotification({ type: 'error', message: `Failed to save item: ${e.message}` });
+                }
+            };
+
             const handleDeleteItem = async (id, name) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
                 try {
@@ -1422,7 +1441,7 @@
                      setNotification({type: 'success', message: 'Settings saved successfully!'});
                      closeModal();
                  } catch (e) {
-                      console.error("Settings save error:", e);
+                     console.error("Settings save error:", e);
                      setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
                  }
             };
@@ -1443,9 +1462,9 @@
             const handleAddToRestockCart = (item) => {
                 setRestockCart(prev => {
                      if (prev.find(i => i.id === item.id)) {
-                        setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
-                        return prev;
-                    }
+                         setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
+                         return prev;
+                     }
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
@@ -1516,7 +1535,7 @@
                                             </button>
                                         </>
                                      ) : (
-                                        <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
+                                         <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
 
                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
