@@ -1183,14 +1183,14 @@
                 try {
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
                         ? JSON.parse(__firebase_config)
-                        : { /* PASTE YOUR FIREBASE CONFIG HERE IF NOT IN A CANVAS ENVIRONMENT */
-                            apiKey: "YOUR_API_KEY",
-                            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-                            projectId: "YOUR_PROJECT_ID",
-                            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-                            messagingSenderId: "YOUR_SENDER_ID",
-                            appId: "YOUR_APP_ID"
-                        };
+                        : {
+                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
+                            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
+                            projectId: "dlv-warehouse-tracker",
+                            storageBucket: "dlv-warehouse-tracker.appspot.com",
+                            messagingSenderId: "267729758583",
+                            appId: "1:267729758583:web:f5f7ca26afc99c17819972"
+                          };
 
                     if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
                         setNotification({ type: 'error', message: 'Firebase configuration is missing or invalid. App cannot start.' });
@@ -1691,4 +1691,4 @@
         root.render(<App />);
     </script>
 </body>
-</html>
+</ht
