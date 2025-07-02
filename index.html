@@ -10,11 +10,15 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
     <script type="module">
-        import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
-        import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
-        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction
+        };
     </script>
 
 </head>
@@ -24,6 +28,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
 
         // --- Firebase Globals (initialized in App component) ---
         let db, auth;
@@ -269,7 +274,10 @@
                 }
             }, [currentItem]);
 
-            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setItem(prev => ({ ...prev, [name]: value.toUpperCase() }));
+            };
             
             const handleSubmit = async (e) => {
                 e.preventDefault();
@@ -285,11 +293,11 @@
             return (
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
-                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg bg-gray-100" readOnly /></div>
-                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
@@ -339,33 +347,33 @@
             }
 
             return (
-                 <Modal onClose={onClose} size="md">
-                     <div className="space-y-4">
-                         <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
-                         <div>
-                             <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
-                             <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
-                         </div>
-                         <div>
-                            <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                            <input 
-                                 type="number" 
-                                 value={adjustment} 
-                                 onChange={(e) => setAdjustment(Number(e.target.value))} 
-                                 className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                                 autoFocus
-                             />
-                             <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
-                         </div>
-                         <div className="flex justify-end gap-4 pt-4">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
-                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                 {isSaving ? 'Applying...' : 'Apply Adjustment'}
-                             </button>
-                         </div>
-                     </div>
-                 </Modal>
+                <Modal onClose={onClose} size="md">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
+                        <div>
+                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
+                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
+                           <input 
+                               type="number" 
+                               value={adjustment} 
+                               onChange={(e) => setAdjustment(Number(e.target.value))} 
+                               className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
+                               autoFocus
+                            />
+                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
             );
         };
         
@@ -382,66 +390,104 @@
             };
 
             return (
-                 <Modal onClose={onClose} size="lg">
-                     <div className="space-y-6">
-                         <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                         <div>
-                            <label className="block text-sm font-medium">Admin Password</label>
-                            <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                            <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
-                         </div>
-                         <div>
-                            <label className="block text-sm font-medium">Default Reorder Level</label>
-                            <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                            <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
-                         </div>
-                         <div className="flex justify-end gap-4 pt-4 border-t">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                 {isSaving ? 'Saving...' : 'Save Settings'}
-                             </button>
-                         </div>
-                     </div>
-                 </Modal>
+                <Modal onClose={onClose} size="lg">
+                    <div className="space-y-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
+                        <div>
+                           <label className="block text-sm font-medium">Admin Password</label>
+                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium">Default Reorder Level</label>
+                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4 border-t">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Saving...' : 'Save Settings'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
             );
         };
 
-        const SiteManagementForm = ({ sites, onAddSite, onClose, setNotification }) => {
-            const [newSite, setNewSite] = useState({ name: '', drPrefix: ''});
+        const SiteManagementForm = ({ sites, onSave, onClose, setNotification, onFinishSite, onReactivateSite }) => {
+            const [editingSite, setEditingSite] = useState(null);
+            const [formData, setFormData] = useState({ name: '', drPrefix: '' });
             const [isSaving, setIsSaving] = useState(false);
 
-            const handleAdd = async (e) => {
+            useEffect(() => {
+                if (editingSite) {
+                    setFormData(editingSite);
+                } else {
+                    setFormData({ name: '', drPrefix: '' });
+                }
+            }, [editingSite]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
+            };
+
+            const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!newSite.name || !newSite.drPrefix) {
-                    setNotification({type: 'error', message: "Site Name and DR Prefix are required."});
+                if (!formData.name || !formData.drPrefix) {
+                    setNotification({ type: 'error', message: "Site Name and DR Prefix are required." });
                     return;
                 }
                 setIsSaving(true);
-                await onAddSite(newSite);
-                setNewSite({ name: '', drPrefix: ''});
+                await onSave(formData);
                 setIsSaving(false);
+                setEditingSite(null); // Reset form after saving
             };
 
             return (
                 <Modal onClose={onClose} size="lg">
                     <div className="space-y-6">
                         <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
-                        <form onSubmit={handleAdd} className="flex gap-2 items-end p-4 border rounded-lg bg-gray-50">
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">New Site Name</label>
-                                <input type="text" value={newSite.name} onChange={e => setNewSite({...newSite, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
+                        <form onSubmit={handleSubmit} className="p-4 border rounded-lg bg-gray-50 space-y-4">
+                            <h3 className="font-bold">{editingSite ? 'Edit Site' : 'Add New Site'}</h3>
+                            <div className="flex gap-2 items-end">
+                                <div className="flex-grow">
+                                    <label className="text-sm font-medium">Site Name</label>
+                                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                </div>
+                                <div className="flex-grow">
+                                    <label className="text-sm font-medium">DR Prefix</label>
+                                    <input type="text" name="drPrefix" value={formData.drPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                </div>
                             </div>
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">DR Prefix (e.g., MNL)</label>
-                                <input type="text" value={newSite.drPrefix} onChange={e => setNewSite({...newSite, drPrefix: e.target.value.toUpperCase()})} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="flex justify-end gap-2">
+                                {editingSite && <button type="button" onClick={() => setEditingSite(null)} className="px-4 h-10 bg-gray-200 rounded-lg">Cancel</button>}
+                                <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">
+                                    {isSaving ? '...' : (editingSite ? 'Save Changes' : 'Add Site')}
+                                </button>
                             </div>
-                            <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">{isSaving ? '...' : 'Add'}</button>
                         </form>
                         <div className="border-t pt-4">
                             <h3 className="font-bold mb-2">Existing Sites</h3>
-                            <ul className="space-y-2 h-48 overflow-y-auto">
-                                {sites.length > 0 ? sites.map(s => <li key={s.id} className="p-3 bg-gray-100 rounded-lg flex justify-between"><span>{s.name}</span> <span className="font-mono text-gray-500">{s.drPrefix} / Last DR: {s.lastDrNumber}</span></li>) : <p className="text-gray-500">No sites configured.</p>}
+                            <ul className="space-y-2 h-48 overflow-y-auto pr-2">
+                                {sites.length > 0 ? sites.map(s => (
+                                    <li key={s.id} className={`p-3 rounded-lg flex justify-between items-center ${s.status === 'Finished' ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                                        <div>
+                                            <span className={`font-medium ${s.status === 'Finished' ? 'text-gray-500' : ''}`}>{s.name}</span>
+                                            <span className={`ml-4 font-mono ${s.status === 'Finished' ? 'text-gray-400' : 'text-gray-500'}`}>{s.drPrefix} / Last DR: {s.lastDrNumber || 0}</span>
+                                            {s.status === 'Finished' && <span className="ml-4 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">FINISHED</span>}
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <button onClick={() => setEditingSite(s)} disabled={s.status === 'Finished'} className="text-sm text-indigo-600 hover:underline disabled:text-gray-400 disabled:no-underline">Edit</button>
+                                            {s.status === 'Finished' ? (
+                                                <button onClick={() => onReactivateSite(s)} className="text-sm text-green-600 hover:underline">Re-activate</button>
+                                            ) : (
+                                                <button onClick={() => onFinishSite(s)} className="text-sm text-blue-600 hover:underline">Mark as Finished</button>
+                                            )}
+                                        </div>
+                                    </li>
+                                )) : <p className="text-gray-500">No sites configured.</p>}
                             </ul>
                         </div>
                         <div className="flex justify-end">
@@ -452,7 +498,7 @@
             );
         };
         
-        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, template, onPreview }) => {
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification }) => {
             const [siteId, setSiteId] = useState('');
             const [customerName, setCustomerName] = useState('');
             const [address, setAddress] = useState('');
@@ -464,6 +510,8 @@
             const filteredInventory = useMemo(() => inventory.filter(i =>
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             ), [inventory, searchTerm]);
+
+            const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const addToCart = (item) => {
                 setCart(prev => {
@@ -497,29 +545,6 @@
                 onFinalize(receiptData);
             }
 
-            const handlePreview = () => {
-                const finalCart = cart.filter(i => i.dispatchQty > 0);
-                if(finalCart.length === 0){
-                    setNotification({type:'info', message:'Add items to the receipt to generate a preview.'});
-                    return;
-                }
-                const selectedSite = sites.find(s => s.id === siteId);
-                const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
-                const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
-
-                const data = {
-                    drNumber: drNumberString,
-                    customerName,
-                    address,
-                    remarks,
-                    items: finalCart,
-                    siteName: selectedSite?.name || 'N/A',
-                    createdAt: { toDate: () => new Date() },
-                    showPrice
-                };
-                onPreview(data);
-            };
-
             return (
                 <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -529,34 +554,34 @@
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
                                      <option value="">-- Select Site --</option>
-                                     {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                     {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                  </select>
-                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                                 <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
+                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                 <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
                              </div>
                             <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[40vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
                                      <thead className="sticky top-0 bg-gray-50 z-10">
-                                        <tr>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
+                                         <tr>
+                                             <th className="p-2">Name</th>
+                                             <th className="p-2">Stock</th>
+                                             <th className="p-2"></th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         {filteredInventory.map(item => (
+                                             <tr key={item.id} className="border-b">
+                                                 <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                 <td className="p-2">{item.qty}</td>
+                                                 <td className="p-2 text-right">
+                                                     <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                         {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                     </button>
+                                                 </td>
+                                             </tr>
+                                         ))}
+                                     </tbody>
                                 </table>
                             </div>
                         </div>
@@ -578,12 +603,11 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleTextChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             <div className="space-y-2 text-sm p-2 bg-gray-100 rounded-md">
                                 <label className="flex items-center gap-2"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show Price & Totals</label>
                             </div>
                              <div className="flex justify-end gap-2 pt-4 border-t">
-                                 <button type="button" onClick={handlePreview} className="px-6 py-2 bg-gray-200 rounded-full">Quick Preview</button>
                                  <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
                                      Preview & Finalize
                                  </button>
@@ -611,61 +635,62 @@
             }, [documents, type]);
             
             return (
-                 <Modal onClose={onClose} size="7xl">
-                     <div className="space-y-4">
-                         <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-                         <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
-                             {Object.entries(groupedDocuments).map(([groupName, docs]) => (
-                                 <div key={groupName} className="mb-8">
-                                     {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
-                                     <table className="w-full text-left">
-                                         <thead className="sticky top-0 bg-gray-50 z-10">
-                                             <tr>
-                                                 <th className="p-3">Number</th>
-                                                 <th className="p-3">Date</th>
-                                                 <th className="p-3">Identifier</th>
-                                                 <th className="p-3">Items</th>
-                                                 <th className="p-3">Status</th>
-                                                 <th className="p-3 text-right">Actions</th>
-                                             </tr>
-                                         </thead>
-                                         <tbody>
-                                             {docs.map(doc => {
-                                                 const getStatusClass = (status) => {
-                                                     if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                     if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                     if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                     return 'text-gray-500 bg-gray-100';
-                                                 }
-                                                 return (
-                                                  <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                      <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                      <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                      <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                      <td className="p-3">{doc.items.length}</td>
-                                                      <td className="p-3">
-                                                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                              {doc.status || 'Active'}
-                                                          </span>
-                                                      </td>
-                                                      <td className="p-3 text-right">
-                                                          <div className="flex gap-2 justify-end">
-                                                              <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                              {actions.map(action => (
-                                                                   <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                              ))}
-                                                          </div>
-                                                      </td>
-                                                  </tr>
-                                                 )
-                                             })}
-                                         </tbody>
-                                     </table>
-                                 </div>
-                             ))}
-                         </div>
-                     </div>
-                 </Modal>
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                        <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
+                            {Object.entries(groupedDocuments).map(([groupName, docs]) => (
+                                <div key={groupName} className="mb-8">
+                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                    <table className="w-full text-left">
+                                        <thead className="sticky top-0 bg-gray-50 z-10">
+                                            <tr>
+                                                <th className="p-3">Number</th>
+                                                <th className="p-3">Date</th>
+                                                <th className="p-3">Identifier</th>
+                                                <th className="p-3">Items</th>
+                                                <th className="p-3">Status</th>
+                                                <th className="p-3 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {docs.map(doc => {
+                                                const getStatusClass = (status) => {
+                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                    if (status === 'Finished') return 'text-blue-500 bg-blue-100';
+                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                    return 'text-gray-500 bg-gray-100';
+                                                }
+                                                return (
+                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                     <td className="p-3">{doc.items.length}</td>
+                                                     <td className="p-3">
+                                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                             {doc.status || 'Active'}
+                                                         </span>
+                                                     </td>
+                                                     <td className="p-3 text-right">
+                                                         <div className="flex gap-2 justify-end">
+                                                             <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                             {actions.map(action => (
+                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                             ))}
+                                                         </div>
+                                                     </td>
+                                                 </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </Modal>
             )
         };
         
@@ -709,91 +734,91 @@
             };
 
             const content = (
-                 <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
-                     {/* Header */}
-                     <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
-                         <div className="w-1/4">
-                             {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
-                         </div>
-                         <div className="w-3/4 text-right">
-                             <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
-                             <p className="text-sm">{effectiveTemplate.companyAddress}</p>
-                             <p className="text-sm">{effectiveTemplate.companyContact}</p>
-                             <p className="text-sm">{effectiveTemplate.companyEmail}</p>
-                         </div>
-                     </div>
+                <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
+                        <div className="w-1/4">
+                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
+                        </div>
+                        <div className="w-3/4 text-right">
+                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
+                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
+                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
+                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
+                        </div>
+                    </div>
 
-                     {/* Title */}
-                     <div className="text-center my-8">
-                         <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
-                     </div>
-                     
-                     {/* Customer & DR Info */}
-                     <div className="grid grid-cols-2 gap-8 mb-8">
-                         <div>
-                             <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
-                             <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
-                             <p>{receipt.address || 'N/A'}</p>
-                         </div>
-                         <div className="text-right">
-                             <div className="grid grid-cols-2">
-                                 <span className="font-bold">No.:</span>
-                                 <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
-                             </div>
-                             <div className="grid grid-cols-2">
-                                 <span className="font-bold">Date:</span>
-                                 <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
-                             </div>
-                             {receipt.drNumber && 
-                                 <div className="grid grid-cols-2">
-                                     <span className="font-bold">Site:</span>
-                                     <span className="text-right">{receipt.siteName}</span>
-                                 </div>
-                             }
-                         </div>
-                     </div>
+                    {/* Title */}
+                    <div className="text-center my-8">
+                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
+                    </div>
+                    
+                    {/* Customer & DR Info */}
+                    <div className="grid grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
+                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                            <p>{receipt.address || 'N/A'}</p>
+                        </div>
+                        <div className="text-right">
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">No.:</span>
+                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
+                            </div>
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">Date:</span>
+                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
+                            </div>
+                            {receipt.drNumber && 
+                                <div className="grid grid-cols-2">
+                                    <span className="font-bold">Site:</span>
+                                    <span className="text-right">{receipt.siteName}</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
 
-                     {/* Items Table */}
-                     <table className="w-full text-left text-sm table-auto border-collapse">
-                         <thead className="bg-gray-100">
-                             <tr>
-                                 <th className="p-2 border">Qty</th>
-                                 <th className="p-2 border">Unit</th>
-                                 <th className="p-2 border">Description</th>
-                                 {showPrice && <th className="p-2 border text-right">Unit Price</th>}
-                                 {showPrice && <th className="p-2 border text-right">Total</th>}
-                             </tr>
-                         </thead>
-                         <tbody>
-                             {receipt.items.map(item => (
-                                 <tr key={item.id} className="border-b">
-                                     <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                     <td className="p-2 border">pcs</td>
-                                     <td className="p-2 border">{item.name}</td>
-                                     {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
-                                     {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
-                                 </tr>
-                             ))}
-                         </tbody>
-                         {showPrice && (
+                    {/* Items Table */}
+                    <table className="w-full text-left text-sm table-auto border-collapse">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="p-2 border">Qty</th>
+                                <th className="p-2 border">Unit</th>
+                                <th className="p-2 border">Description</th>
+                                {showPrice && <th className="p-2 border text-right">Unit Price</th>}
+                                {showPrice && <th className="p-2 border text-right">Total</th>}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {receipt.items.map(item => (
+                                <tr key={item.id} className="border-b">
+                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
+                                    <td className="p-2 border">pcs</td>
+                                    <td className="p-2 border">{item.name}</td>
+                                    {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
+                                    {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                </tr>
+                            ))}
+                        </tbody>
+                        {showPrice && (
                             <tfoot className="font-bold">
                                 <tr>
                                     <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
                                     <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
                                 </tr>
                             </tfoot>
-                         )}
-                     </table>
+                        )}
+                    </table>
 
-                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
-                     
-                     <div className="mt-24 grid grid-cols-2 gap-16 text-center">
-                         {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
-                         {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
-                         {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
-                         {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
-                     </div>
-                 </div>
+                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
+                    
+                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
+                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
+                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
+                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
+                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                    </div>
+                </div>
             );
 
             if (isPreview) {
@@ -815,7 +840,6 @@
                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
                                         </button>}
-                                        {!onConfirm && <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>}
                                     </>
                                 )}
                              </div>
@@ -844,6 +868,8 @@
             const filteredInventory = useMemo(() => inventory.filter(i => 
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             ), [inventory, searchTerm]);
+            
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const addToCart = (item) => {
                 setOrderCart(prev => {
@@ -922,7 +948,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
                              <div className="flex justify-end gap-4 pt-4 border-t">
                                  <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
                                  <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
@@ -939,7 +965,12 @@
             const [localTemplate, setLocalTemplate] = useState(template);
             const [isSaving, setIsSaving] = useState(false);
             
-            const handleChange = (e) => setLocalTemplate(prev => ({...prev, [e.target.name]: e.target.value }));
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                // Only uppercase text fields, not color pickers etc.
+                const isTextField = e.target.type === 'text' || e.target.type === 'email';
+                setLocalTemplate(prev => ({...prev, [name]: isTextField ? value.toUpperCase() : value }));
+            };
 
             const handleFileChange = (e) => {
                 const file = e.target.files[0];
@@ -970,27 +1001,27 @@
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Company Name</label>
-                                <input type="text" name="companyName" value={localTemplate.companyName} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="companyName" value={localTemplate.companyName} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
-                             <div>
+                            <div>
                                 <label className="block text-sm font-medium">Header Title</label>
-                                <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
                         
                         <div>
                             <label className="block text-sm font-medium">Company Address</label>
-                            <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                         </div>
 
-                         <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Company Contact #</label>
-                                <input type="text" name="companyContact" value={localTemplate.companyContact} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="companyContact" value={localTemplate.companyContact} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
-                             <div>
+                            <div>
                                 <label className="block text-sm font-medium">Company Email</label>
-                                <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
                         
@@ -1006,10 +1037,10 @@
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
-                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" placeholder="Optional" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" placeholder="Optional" /></div>
+                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
                         </div>
                         
                         <div className="flex justify-end gap-4 pt-4 border-t">
@@ -1055,42 +1086,42 @@
             };
 
             return (
-                 <Modal onClose={onClose} size="7xl">
-                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                          {/* Item List & Header */}
-                         <div className="lg:col-span-2 space-y-4">
-                             <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
-                            <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                <Modal onClose={onClose} size="7xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                         {/* Item List & Header */}
+                        <div className="lg:col-span-2 space-y-4">
+                            <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
+                           <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[50vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
                                      <thead className="sticky top-0 bg-gray-50 z-10">
-                                        <tr>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Current Stock</th>
-                                            <th className="p-2"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
+                                         <tr>
+                                             <th className="p-2">Name</th>
+                                             <th className="p-2">Current Stock</th>
+                                             <th className="p-2"></th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         {filteredInventory.map(item => (
+                                             <tr key={item.id} className="border-b">
+                                                 <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                 <td className="p-2">{item.qty}</td>
+                                                 <td className="p-2 text-right">
+                                                     <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                         {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                     </button>
+                                                 </td>
+                                             </tr>
+                                         ))}
+                                     </tbody>
                                 </table>
                             </div>
-                         </div>
+                        </div>
 
-                          {/* Restock Cart Column */}
-                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                            <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
-                             <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
+                         {/* Restock Cart Column */}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                           <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
+                            <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Add Qty</th><th className="p-2"></th></tr></thead>
                                     <tbody>
@@ -1103,17 +1134,17 @@
                                         )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added to restock list.</td></tr>}
                                     </tbody>
                                 </table>
-                             </div>
-                            <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                             <div className="flex justify-end gap-4 pt-4 border-t">
-                                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
-                                     {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
-                                 </button>
-                             </div>
-                         </div>
-                     </div>
-                 </Modal>
+                            </div>
+                           <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <div className="flex justify-end gap-4 pt-4 border-t">
+                               <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
+                                    {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </Modal>
             )
         };
 
@@ -1152,17 +1183,17 @@
                 try {
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
                         ? JSON.parse(__firebase_config)
-                        : {
-                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
-                            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
-                            projectId: "dlv-warehouse-tracker",
-                            storageBucket: "dlv-warehouse-tracker.appspot.com",
-                            messagingSenderId: "267729758583",
-                            appId: "1:267729758583:web:f5f7ca26afc99c17819972"
+                        : { /* PASTE YOUR FIREBASE CONFIG HERE IF NOT IN A CANVAS ENVIRONMENT */
+                            apiKey: "YOUR_API_KEY",
+                            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+                            projectId: "YOUR_PROJECT_ID",
+                            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+                            messagingSenderId: "YOUR_SENDER_ID",
+                            appId: "YOUR_APP_ID"
                         };
 
-                    if (!firebaseConfig?.apiKey) {
-                        setNotification({ type: 'error', message: 'Firebase configuration is invalid. App cannot start.' });
+                    if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
+                        setNotification({ type: 'error', message: 'Firebase configuration is missing or invalid. App cannot start.' });
                         setIsAuthReady(true); setIsLoading(false); return;
                     }
                     
@@ -1221,13 +1252,46 @@
              };
 
             // --- Business Logic Handlers ---
-            const handleAddSite = async (newSite) => {
+            const handleSaveSite = async (siteData) => {
                 const path = `artifacts/${appId}/public/data/sites`;
-                 try {
-                     await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
-                     setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
-                     await logAction('Site Added', `New site created: ${newSite.name}`);
-                 } catch(e) { setNotification({type: 'error', message: `Failed to add site: ${e.message}`}); }
+                try {
+                    if (siteData.id) { // Editing
+                        const { id, ...dataToSave } = siteData;
+                        await updateDoc(doc(db, path, id), dataToSave);
+                        setNotification({type: 'success', message: `Site "${siteData.name}" updated.`});
+                        await logAction('Site Updated', `Updated site: ${siteData.name}`);
+                    } else { // Adding
+                        await addDoc(collection(db, path), { ...siteData, lastDrNumber: 0, status: 'Active' });
+                        setNotification({type: 'success', message: `Site "${siteData.name}" added.`});
+                        await logAction('Site Added', `New site created: ${siteData.name}`);
+                    }
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to save site: ${e.message}`});
+                }
+            };
+
+            const handleFinishSite = async (site) => {
+                if (!site || site.status === 'Finished') return;
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
+                try {
+                    await updateDoc(siteRef, { status: 'Finished' });
+                    setNotification({type: 'success', message: `Site "${site.name}" marked as finished.`});
+                    await logAction('Site Finished', `Site ${site.name} was marked as finished.`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                }
+            };
+
+            const handleReactivateSite = async (site) => {
+                if (!site || site.status !== 'Finished') return;
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
+                try {
+                    await updateDoc(siteRef, { status: 'Active' });
+                    setNotification({type: 'success', message: `Site "${site.name}" has been re-activated.`});
+                    await logAction('Site Re-activated', `Site ${site.name} was marked as active.`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                }
             };
             
             const handleRestockItems = async (itemsToRestock, remarks) => {
@@ -1357,17 +1421,67 @@
                      closeModal(); 
                 } catch(e) { console.error("Void receipt transaction failed:", e); setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`}); setReceiptToVoid(null); }
             };
+
+            const handleFinishReceipt = async (receipt) => {
+                if (!receipt || receipt.status !== 'Active') return;
+                const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
+                try {
+                    await updateDoc(receiptRef, { status: 'Finished' });
+                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.`});
+                    await logAction('Receipt Finished', `DR ${receipt.drNumber} was marked as finished.`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to update receipt status: ${e.message}`});
+                }
+            };
             
             // --- CRUD Handlers ---
             const handleSaveItem = async (item) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
                 try {
+                    // Normalize inputs for comparison
+                    const itemNameLower = item.name.trim().toLowerCase();
+                    const itemBrandLower = (item.brand || '').trim().toLowerCase();
+                    const itemSkuLower = item.sku.trim().toLowerCase();
+
                     if (item.id) { // Editing existing item
+                        const conflictingSku = inventory.find(invItem =>
+                            invItem.id !== item.id && invItem.sku.trim().toLowerCase() === itemSkuLower
+                        );
+                        if (conflictingSku) {
+                            setNotification({ type: 'error', message: `SKU "${item.sku}" is already used by another item.` });
+                            return;
+                        }
+
+                        const conflictingNameAndBrand = inventory.find(invItem =>
+                            invItem.id !== item.id &&
+                            invItem.name.trim().toLowerCase() === itemNameLower &&
+                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
+                        );
+                        if (conflictingNameAndBrand) {
+                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
+                            return;
+                        }
+
                         const { id, qty, ...itemData } = item;
                         await updateDoc(doc(db, path, id), itemData);
                         await logAction('Item Updated', `Updated details for "${item.name}" (SKU: ${item.sku})`);
                         setNotification({ type: 'success', message: 'Item details successfully updated.' });
                     } else { // Adding new item
+                        const conflictingSku = inventory.find(invItem => invItem.sku.trim().toLowerCase() === itemSkuLower);
+                        if (conflictingSku) {
+                            setNotification({ type: 'error', message: `SKU "${item.sku}" already exists. Please use a unique SKU.` });
+                            return;
+                        }
+
+                        const conflictingNameAndBrand = inventory.find(invItem =>
+                            invItem.name.trim().toLowerCase() === itemNameLower &&
+                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
+                        );
+                        if (conflictingNameAndBrand) {
+                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
+                            return;
+                        }
+                        
                         await addDoc(collection(db, path), item);
                         await logAction('Item Added', `Added new item "${item.name}" (SKU: ${item.sku}) with initial quantity ${item.qty}`);
                         setNotification({ type: 'success', message: 'Item successfully added.' });
@@ -1453,6 +1567,21 @@
             // --- Render Logic ---
             if (!isAuthReady || isLoading) return <Spinner text={!isAuthReady ? "Initializing..." : "Loading data..."} />;
             
+            const drManagerActions = isAdminMode ? [
+                {
+                    label: "Mark as Finished",
+                    handler: handleFinishReceipt,
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-blue-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                },
+                {
+                    label: "Void",
+                    handler: (r) => setReceiptToVoid(r),
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                }
+            ] : [];
+
             return (
                 <>
                     <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
@@ -1482,23 +1611,23 @@
                                      </button>
                                      
                                      {isAdminMode ? (
-                                        <>
-                                            <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
-                                            <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                            <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
-                                            <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
-                                            <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
-                                            <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
-                                            <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
-                                                Restock Items
-                                                {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
-                                            </button>
-                                        </>
+                                         <>
+                                             <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
+                                             <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
+                                             <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
+                                             <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
+                                             <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
+                                             <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
+                                                 Restock Items
+                                                 {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
+                                             </button>
+                                         </>
                                      ) : (
                                          <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
-
-                                    <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
+                                     
+                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
                             
@@ -1530,20 +1659,18 @@
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
-                    {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onFinalize={handlePreviewAndFinalize} onClose={closeModal} setNotification={setNotification} template={drTemplate} onPreview={(data) => openModal('dr_detail_preview', data)}/>}
+                    {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onFinalize={handlePreviewAndFinalize} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
 
-                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={[{label: "Void", handler: (r) => setReceiptToVoid(r), disabled: (r) => r.status === 'Voided', className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} type="dr_manager"/>}
+                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={drManagerActions} type="dr_manager"/>}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
                     
-                    {modal === 'dr_detail_preview' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} isPreview={true} />}
-
                     {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
                         <ReceiptDetailView 
                             receipt={pendingReceipt} 
