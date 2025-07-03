@@ -9,11 +9,13 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
+    <!-- Firebase Libraries -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // Expose Firebase modules to the global window object for Babel to access
         window.firebase = {
             initializeApp,
             getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
@@ -22,21 +24,25 @@
     </script>
 
 </head>
-<body>
+<body class="bg-gray-50">
     <div id="root"></div>
+    <!-- This div is used specifically for printing content -->
     <div id="print-area" class="hidden print:block"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
+        // Destructure Firebase functions from the global window object
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
 
-        // --- Firebase Globals (initialized in App component) ---
+        // --- Firebase Globals (will be initialized in the App component) ---
         let db, auth;
 
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
         // --- UI Components ---
+
+        // A simple spinner component for loading states
         const Spinner = ({ text = "Loading..." }) => (
             <div className="fixed inset-0 bg-gray-100 bg-opacity-75 flex flex-col justify-center items-center p-4 z-[999]">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -44,6 +50,7 @@
             </div>
         );
 
+        // A generic modal component
         const Modal = ({ children, onClose, size = 'md', zIndexClass = 'z-50' }) => {
             const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
             return (
@@ -58,6 +65,7 @@
             );
         };
         
+        // A modal for showing notifications (success, error, info)
         const NotificationModal = ({ message, type, onClose }) => {
              const colors = {
                  success: 'bg-green-100 border-green-500 text-green-700',
@@ -81,6 +89,7 @@
              );
         };
 
+        // A modal for confirming actions (e.g., deletion)
         const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel', confirmClass = 'bg-red-600 hover:bg-red-700' }) => {
             if (!isOpen) return null;
             return (
@@ -103,6 +112,7 @@
         
         // --- Widget & Form Components ---
 
+        // Dashboard widget showing key inventory stats
         const StatsWidget = ({ inventory }) => {
             const totalItems = inventory.length;
             const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
@@ -130,6 +140,7 @@
             );
         };
 
+        // Dashboard widget showing items that are low in stock
         const LowStockWidget = ({ inventory, settings, onRestock, setNotification }) => {
             const lowStockItems = useMemo(() => {
                 return inventory.filter(item => {
@@ -170,6 +181,7 @@
             );
         };
 
+        // Main table displaying all inventory items
         const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
             const filteredInventory = useMemo(() => inventory.filter(item => 
                 (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
@@ -187,9 +199,9 @@
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="overflow-x-auto -mx-6">
+                        <div className="h-[60vh] overflow-y-auto border rounded-lg">
                             <table className="w-full text-left table-auto">
-                                <thead>
+                                <thead className="sticky top-0 bg-white z-10">
                                     <tr className="border-b-2 border-gray-100">
                                         <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
                                         <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
@@ -233,6 +245,7 @@
             );
         };
         
+        // Widget to display recent activity logs
         const LogsWidget = ({ isLoading, appId }) => {
             const [logs, setLogs] = useState([]);
             useEffect(() => {
@@ -262,6 +275,7 @@
             );
         };
 
+        // Form for adding or editing an inventory item
         const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
             const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
             const [isSaving, setIsSaving] = useState(false);
@@ -315,6 +329,7 @@
             );
         };
         
+        // Modal for entering admin password
         const AdminLoginModal = ({ onLogin, onClose }) => {
             const [password, setPassword] = useState('');
             const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
@@ -332,6 +347,7 @@
             );
         };
         
+        // Form for adjusting the stock quantity of an item
         const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
             const [adjustment, setAdjustment] = useState(0);
             const [isSaving, setIsSaving] = useState(false);
@@ -377,6 +393,7 @@
             );
         };
         
+        // Form for changing application settings (admin pass, reorder level)
         const SettingsForm = ({ settings, onSave, onClose }) => {
             const [localSettings, setLocalSettings] = useState(settings);
             const [isSaving, setIsSaving] = useState(false);
@@ -415,6 +432,7 @@
             );
         };
 
+        // Form for managing project sites
         const SiteManagementForm = ({ sites, onSave, onClose, setNotification, onFinishSite, onReactivateSite }) => {
             const [editingSite, setEditingSite] = useState(null);
             const [formData, setFormData] = useState({ name: '', drPrefix: '' });
@@ -498,6 +516,7 @@
             );
         };
         
+        // Form for creating a new delivery receipt
         const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification }) => {
             const [siteId, setSiteId] = useState('');
             const [customerName, setCustomerName] = useState('');
@@ -562,33 +581,33 @@
                             <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[40vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
-                                     <thead className="sticky top-0 bg-gray-50 z-10">
-                                         <tr>
-                                             <th className="p-2">Name</th>
-                                             <th className="p-2">Stock</th>
-                                             <th className="p-2"></th>
-                                         </tr>
-                                     </thead>
-                                     <tbody>
-                                         {filteredInventory.map(item => (
-                                             <tr key={item.id} className="border-b">
-                                                 <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                 <td className="p-2">{item.qty}</td>
-                                                 <td className="p-2 text-right">
-                                                     <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                         {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                     </button>
-                                                 </td>
-                                             </tr>
-                                         ))}
-                                     </tbody>
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Stock</th>
+                                            <th className="p-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                <td className="p-2">{item.qty}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
                                 </table>
                             </div>
                         </div>
 
                         {/* Receipt Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
+                            <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
@@ -618,6 +637,7 @@
             );
         };
         
+        // Modal for showing historical documents (DRs, Orders)
         const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type }) => {
             const groupedDocuments = useMemo(() => {
                 if (!documents) return {};
@@ -694,6 +714,7 @@
             )
         };
         
+        // Component to display a detailed, printable receipt view
         const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText }) => {
             const [isSaving, setIsSaving] = useState(false);
             const [isSaved, setIsSaved] = useState(false);
@@ -829,19 +850,19 @@
                                  {content}
                              </div>
                              <div className="flex justify-end gap-4 p-4 border-t no-print">
-                                {isSaved ? (
-                                    <>
-                                        <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                                        <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
-                                    </>
-                                ) : (
-                                    <>
-                                        {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
-                                        {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                            {isSaving ? 'Saving...' : confirmText || 'Confirm'}
-                                        </button>}
-                                    </>
-                                )}
+                                 {isSaved ? (
+                                     <>
+                                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                         <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
+                                     </>
+                                 ) : (
+                                     <>
+                                         {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
+                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
+                                         </button>}
+                                     </>
+                                 )}
                              </div>
                          </div>
                      </div>
@@ -859,6 +880,7 @@
             )
         };
 
+        // Form for non-admin users to request items
         const UserOrderForm = ({ inventory, onSave, onClose, setNotification, user }) => {
             const [orderCart, setOrderCart] = useState([]);
             const [remarks, setRemarks] = useState('');
@@ -961,6 +983,7 @@
             );
         };
         
+        // Modal for editing the printable document template
         const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
             const [localTemplate, setLocalTemplate] = useState(template);
             const [isSaving, setIsSaving] = useState(false);
@@ -1054,6 +1077,7 @@
             );
         }
 
+        // Form for restocking inventory
         const RestockForm = ({ inventory, initialCart, onSave, onClose, setNotification }) => {
             const [cart, setCart] = useState(initialCart || []);
             const [remarks, setRemarks] = useState('');
@@ -1094,26 +1118,26 @@
                            <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[50vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
-                                     <thead className="sticky top-0 bg-gray-50 z-10">
-                                         <tr>
-                                             <th className="p-2">Name</th>
-                                             <th className="p-2">Current Stock</th>
-                                             <th className="p-2"></th>
-                                         </tr>
-                                     </thead>
-                                     <tbody>
-                                         {filteredInventory.map(item => (
-                                             <tr key={item.id} className="border-b">
-                                                 <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                 <td className="p-2">{item.qty}</td>
-                                                 <td className="p-2 text-right">
-                                                     <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                         {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                     </button>
-                                                 </td>
-                                             </tr>
-                                         ))}
-                                     </tbody>
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Current Stock</th>
+                                            <th className="p-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                <td className="p-2">{item.qty}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
+                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
                                 </table>
                             </div>
                         </div>
@@ -1187,9 +1211,10 @@
                             apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
                             authDomain: "dlv-warehouse-tracker.firebaseapp.com",
                             projectId: "dlv-warehouse-tracker",
-                            storageBucket: "dlv-warehouse-tracker.appspot.com",
+                            storageBucket: "dlv-warehouse-tracker.firebasestorage.app",
                             messagingSenderId: "267729758583",
-                            appId: "1:267729758583:web:f5f7ca26afc99c17819972"
+                            appId: "1:267729758583:web:f5f7ca26afc99c17819972",
+                            measurementId: "G-1DH9GT5RXS"
                           };
 
                     if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
@@ -1584,7 +1609,7 @@
 
             return (
                 <>
-                    <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
+                    <div className="min-h-screen font-sans text-gray-800">
                         <style>{`
                             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
                             body { font-family: 'Poppins', sans-serif; } 
@@ -1691,4 +1716,4 @@
         root.render(<App />);
     </script>
 </body>
-</ht
+</html>
