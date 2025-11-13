@@ -57,6 +57,39 @@
             return ordered;
         };
 
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackUnits = uniqueUnits([
+                ...DEFAULT_ISSUING_UNITS,
+                item.issuingUnit,
+                item.unit,
+                item.defaultUnit
+            ]);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return DEFAULT_ISSUING_UNITS;
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return item.unit.trim();
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return item.issuingUnit.trim();
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'Unit';
+        };
+
         // --- UI Components ---
 
         // A simple spinner component for loading states
@@ -233,36 +266,39 @@
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg">
-                            <table className="w-full text-left table-auto">
-                                <thead className="sticky top-0 bg-white z-10">
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) <= reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-orange-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+                        <div className="h-[60vh] border rounded-lg overflow-hidden">
+                            <div className="h-full overflow-auto">
+                                <table className="w-full min-w-[720px] text-left table-auto">
+                                    <thead className="sticky top-0 bg-white z-10">
+                                        <tr className="border-b-2 border-gray-100">
+                                            <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Unit</th>
+                                            {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                            const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                            const isLowStock = Number(item.qty) <= reorder;
+                                            const primaryUnit = getPrimaryIssuingUnit(item);
+                                            return (
+                                                <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
+                                                    <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+                                                    <td className="p-4">
+                                                        <p className="font-medium text-gray-800">{item.name}</p>
+                                                        <p className="text-sm text-gray-500">{item.brand}</p>
+                                                        <p className={`text-xs font-semibold mt-1 ${isLowStock ? 'text-orange-500' : 'text-gray-500'}`}>Stock: {item.qty}</p>
+                                                    </td>
+                                                    <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                    <td className="p-4 text-gray-600">{primaryUnit}</td>
+                                                    {isAdminMode && (
+                                                        <td className="p-4 text-right">
+                                                            <div className="flex justify-end gap-1">
+                                                                <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+                                                                <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+                                                                <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
                                                         </div>
                                                     </td>
                                                 )}
@@ -271,8 +307,9 @@
                                     }) : (
                                         <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
                                     )}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -596,28 +633,6 @@
 
             const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
-            const resolveUnitOptions = (item) => {
-                const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-                for (const list of candidateLists) {
-                    if (Array.isArray(list) && list.length > 0) {
-                        const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
-                        if (cleaned.length > 0) {
-                            return cleaned;
-                        }
-                    }
-                }
-                const fallbackUnits = uniqueUnits([
-                    ...DEFAULT_ISSUING_UNITS,
-                    item.issuingUnit,
-                    item.unit,
-                    item.defaultUnit
-                ]);
-                if (fallbackUnits.length > 0) {
-                    return fallbackUnits;
-                }
-                return DEFAULT_ISSUING_UNITS;
-            };
-
             const getSelectionForItem = (item) => {
                 const options = resolveUnitOptions(item);
                 const defaults = { qty: 1, unit: options[0] };
@@ -654,7 +669,7 @@
                         return prev;
                     }
 
-                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || resolveUnitOptions(item)[0] }];
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item) }];
                 });
             };
 
@@ -682,7 +697,7 @@
 
                 const normalizedCart = finalCart.map(item => ({
                     ...item,
-                    unit: item.unit || resolveUnitOptions(item)[0]
+                    unit: item.unit || getPrimaryIssuingUnit(item)
                 }));
 
                 const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
