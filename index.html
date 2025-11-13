@@ -40,6 +40,23 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
+        const DEFAULT_ISSUING_UNITS = ['Roll', 'Meter', 'Set', 'Pc', 'Assy'];
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                if (typeof unit !== 'string') return;
+                const trimmed = unit.trim();
+                if (!trimmed) return;
+                const key = trimmed.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(trimmed);
+            });
+            return ordered;
+        };
+
         // --- UI Components ---
 
         // A simple spinner component for loading states
@@ -583,16 +600,22 @@
                 const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
                 for (const list of candidateLists) {
                     if (Array.isArray(list) && list.length > 0) {
-                        const cleaned = list.filter(Boolean);
+                        const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
                         if (cleaned.length > 0) {
                             return cleaned;
                         }
                     }
                 }
-                if (item.issuingUnit) return [item.issuingUnit];
-                if (item.unit) return [item.unit];
-                if (item.defaultUnit) return [item.defaultUnit];
-                return ['PCS'];
+                const fallbackUnits = uniqueUnits([
+                    ...DEFAULT_ISSUING_UNITS,
+                    item.issuingUnit,
+                    item.unit,
+                    item.defaultUnit
+                ]);
+                if (fallbackUnits.length > 0) {
+                    return fallbackUnits;
+                }
+                return DEFAULT_ISSUING_UNITS;
             };
 
             const getSelectionForItem = (item) => {
