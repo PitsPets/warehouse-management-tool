@@ -40,6 +40,111 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
+        const DEFAULT_ISSUING_UNITS = ['Roll', 'Meter', 'Set', 'Pc', 'Assy'];
+
+        const UNIT_DISPLAY_OVERRIDES = {
+            pc: 'PC',
+            pcs: 'PCS',
+            roll: 'Roll',
+            meter: 'Meter',
+            set: 'Set',
+            assy: 'Assy'
+        };
+
+        const UNIT_PLURAL_OVERRIDES = {
+            assy: 'Assys'
+        };
+
+        const formatUnitLabel = (quantity, unit) => {
+            const parsedQty = Number(quantity);
+            const hasPluralQuantity = Number.isFinite(parsedQty) && parsedQty > 1;
+            if (!unit || typeof unit !== 'string' || !unit.trim()) {
+                return hasPluralQuantity ? 'Units' : 'Unit';
+            }
+
+            const trimmedUnit = unit.trim();
+            const normalizedKey = trimmedUnit.toLowerCase();
+            const baseUnit = UNIT_DISPLAY_OVERRIDES[normalizedKey] || (
+                trimmedUnit.charAt(0).toUpperCase() + trimmedUnit.slice(1).toLowerCase()
+            );
+
+            if (!hasPluralQuantity) {
+                return baseUnit;
+            }
+
+            if (UNIT_PLURAL_OVERRIDES[normalizedKey]) {
+                return UNIT_PLURAL_OVERRIDES[normalizedKey];
+            }
+
+            const lowerBase = baseUnit.toLowerCase();
+            if (lowerBase.endsWith('s')) {
+                return baseUnit;
+            }
+
+            if (/[^aeiou]y$/.test(lowerBase)) {
+                const root = baseUnit.slice(0, -1);
+                return baseUnit === baseUnit.toUpperCase() ? `${root}IES` : `${root}ies`;
+            }
+
+            if (/(s|x|z|ch|sh)$/.test(lowerBase)) {
+                return baseUnit === baseUnit.toUpperCase() ? `${baseUnit}ES` : `${baseUnit}es`;
+            }
+
+            if (baseUnit === baseUnit.toUpperCase() && baseUnit.length <= 3) {
+                return `${baseUnit}s`;
+            }
+
+            return baseUnit === baseUnit.toUpperCase() ? `${baseUnit}S` : `${baseUnit}s`;
+        };
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                if (typeof unit !== 'string') return;
+                const trimmed = unit.trim();
+                if (!trimmed) return;
+                const key = trimmed.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(trimmed);
+            });
+            return ordered;
+        };
+
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackUnits = uniqueUnits([
+                ...DEFAULT_ISSUING_UNITS,
+                item.issuingUnit,
+                item.unit,
+                item.defaultUnit
+            ]);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return DEFAULT_ISSUING_UNITS;
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return item.unit.trim();
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return item.issuingUnit.trim();
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'Unit';
+        };
+
         // --- UI Components ---
 
         // A simple spinner component for loading states
@@ -53,9 +158,26 @@
         // A generic modal component
         const Modal = ({ children, onClose, size = 'md', zIndexClass = 'z-50' }) => {
             const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+            const overlayClasses = [
+                'fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4',
+                'transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden',
+                zIndexClass
+            ].join(' ');
+            const containerClasses = [
+                'bg-white rounded-2xl shadow-2xl w-full',
+                sizeClasses[size],
+                'p-6 relative transform transition-all duration-300 mb-8'
+            ].join(' ');
             return (
-                <div className={`fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4 transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden ${zIndexClass}`}>
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 mb-8`}>
+                <div
+                    className={overlayClasses}
+                    role="presentation"
+                >
+                    <div
+                        className={containerClasses}
+                        role="dialog"
+                        aria-modal="true"
+                    >
                         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
@@ -199,36 +321,39 @@
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg">
-                            <table className="w-full text-left table-auto">
-                                <thead className="sticky top-0 bg-white z-10">
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) <= reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-orange-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+                        <div className="h-[60vh] border rounded-lg overflow-hidden">
+                            <div className="h-full overflow-auto">
+                                <table className="w-full min-w-[720px] text-left table-auto">
+                                    <thead className="sticky top-0 bg-white z-10">
+                                        <tr className="border-b-2 border-gray-100">
+                                            <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Unit</th>
+                                            {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                            const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                            const isLowStock = Number(item.qty) <= reorder;
+                                            const primaryUnit = getPrimaryIssuingUnit(item);
+                                            return (
+                                                <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
+                                                    <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+                                                    <td className="p-4">
+                                                        <p className="font-medium text-gray-800">{item.name}</p>
+                                                        <p className="text-sm text-gray-500">{item.brand}</p>
+                                                        <p className={`text-xs font-semibold mt-1 ${isLowStock ? 'text-orange-500' : 'text-gray-500'}`}>Stock: {item.qty}</p>
+                                                    </td>
+                                                    <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                    <td className="p-4 text-gray-600">{primaryUnit}</td>
+                                                    {isAdminMode && (
+                                                        <td className="p-4 text-right">
+                                                            <div className="flex justify-end gap-1">
+                                                                <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+                                                                <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+                                                                <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
                                                         </div>
                                                     </td>
                                                 )}
@@ -237,8 +362,9 @@
                                     }) : (
                                         <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
                                     )}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -518,21 +644,65 @@
         };
         
         // Form for creating a new delivery receipt
-        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification }) => {
-            const [siteId, setSiteId] = useState('');
-            const [customerName, setCustomerName] = useState('');
-            const [address, setAddress] = useState('');
-            const [poNumber, setPoNumber] = useState('');
-            const [remarks, setRemarks] = useState('');
-            const [cart, setCart] = useState([]);
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [cart, setCart] = useState(initialData?.items || []);
             const [searchTerm, setSearchTerm] = useState('');
-            const [showPrice, setShowPrice] = useState(true);
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [selectionState, setSelectionState] = useState({});
 
-            const filteredInventory = useMemo(() => inventory.filter(i =>
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setCart(initialData.items || []);
+                    setShowPrice(initialData.showPrice ?? true);
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setCart([]);
+                    setShowPrice(true);
+                }
+                setSelectionState({});
+            }, [initialData]);
+
+            const filteredInventory = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return inventory;
+                return inventory.filter(i => {
+                    const name = (i.name || '').toLowerCase();
+                    const sku = (i.sku || '').toLowerCase();
+                    return name.includes(term) || sku.includes(term);
+                });
+            }, [inventory, searchTerm]);
 
             const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const getSelectionForItem = (item) => {
+                const options = resolveUnitOptions(item);
+                const defaults = { qty: 1, unit: options[0] };
+                return { ...defaults, ...(selectionState[item.id] || {}) };
+            };
+
+            const updateSelection = (itemId, field, value) => {
+                setSelectionState(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        [field]: field === 'qty' ? value.replace(/[^0-9.]/g, '') : value
+                    }
+                }));
+            };
 
             const addToCart = (item) => {
                 setCart(prev => {
@@ -540,29 +710,53 @@
                         setNotification({ type: 'info', message: `${item.name} is already in the list.` });
                         return prev;
                     }
-                    return [...prev, { ...item, dispatchQty: 1 }];
+
+                    const selection = getSelectionForItem(item);
+                    const parsedQty = Math.max(0, Number(selection.qty || 0));
+                    if (!parsedQty) {
+                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero before adding.' });
+                        return prev;
+                    }
+
+                    const inventoryItem = inventory.find(i => i.id === item.id);
+                    if (inventoryItem && parsedQty > Number(inventoryItem.qty)) {
+                        setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                        return prev;
+                    }
+
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item) }];
                 });
             };
 
             const updateCartQty = (id, qty) => {
                 const inventoryItem = inventory.find(i => i.id === id);
                 const newQty = Math.max(0, Number(qty));
-                if (newQty > inventoryItem.qty) {
+                if (inventoryItem && newQty > Number(inventoryItem.qty)) {
                     setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
-                    setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
+                    setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: Number(inventoryItem.qty) } : i));
                     return;
                 }
-                setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+                setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+            };
+
+            const updateCartUnit = (id, unit) => {
+                setCart(prev => prev.map(i => i.id === id ? { ...i, unit } : i));
             };
 
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
-            
+
             const handleFinalize = () => {
                 const finalCart = cart.filter(i => i.dispatchQty > 0);
                 if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
                 if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
-                
-                const receiptData = { siteId, customerName, address, poNumber, remarks, items: finalCart, showPrice };
+
+                const normalizedCart = finalCart.map(item => ({
+                    ...item,
+                    unit: item.unit || getPrimaryIssuingUnit(item)
+                }));
+
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
+                onDraftChange(receiptData);
                 onFinalize(receiptData);
             }
 
@@ -587,22 +781,58 @@
                                     <thead className="sticky top-0 bg-gray-50 z-10">
                                         <tr>
                                             <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
+                                            <th className="p-2">Issuing Unit</th>
+                                            <th className="p-2 w-48">Quantity</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {filteredInventory.map(item => {
+                                            const selection = getSelectionForItem(item);
+                                            const unitOptions = resolveUnitOptions(item);
+                                            const inCart = cart.some(c => c.id === item.id);
+                                            return (
+                                                <tr key={item.id} className="border-b">
+                                                    <td className="p-2">
+                                                        <div className="flex flex-col">
+                                                            <span>{item.name}</span>
+                                                            <span className="text-xs text-gray-400">({item.sku})</span>
+                                                            <span className="text-xs text-gray-500">Stock: {item.qty}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <select
+                                                            value={selection.unit}
+                                                            onChange={(e) => updateSelection(item.id, 'unit', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                            disabled={inCart}
+                                                        >
+                                                            {unitOptions.map(option => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={selection.qty}
+                                                                onChange={(e) => updateSelection(item.id, 'qty', e.target.value)}
+                                                                className="w-20 p-1 border rounded"
+                                                                disabled={inCart}
+                                                            />
+                                                            <button
+                                                                onClick={() => addToCart(item)}
+                                                                className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300"
+                                                                disabled={inCart}
+                                                            >
+                                                                {inCart ? 'Added' : 'Add'}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -613,15 +843,22 @@
                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
                                     <tbody>
                                         {cart.length > 0 ? cart.map(item => (
                                             <tr key={item.id} className="border-b">
                                                 <td className="p-2">{item.name}</td>
                                                 <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2">
+                                                    <select value={item.unit} onChange={(e) => updateCartUnit(item.id, e.target.value)} className="w-full px-2 py-1 border rounded-md">
+                                                        {resolveUnitOptions(item).map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
                                                 <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
                                             </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                        )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -641,13 +878,45 @@
         };
         
         // Modal for showing historical documents (DRs, Orders)
-        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type }) => {
+        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [viewingReceipt, setViewingReceipt] = useState(null);
+
+            const filteredDocuments = useMemo(() => {
+                const baseDocs = documents || [];
+                if (type !== 'dr_manager') return baseDocs;
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return baseDocs;
+                return baseDocs.filter(doc => {
+                    const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
+                    const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
+                    const site = (doc.siteName || doc.site || '').toLowerCase();
+                    const dateString = (() => {
+                        try {
+                            if (doc.createdAt?.toDate) {
+                                return doc.createdAt.toDate().toLocaleDateString().toLowerCase();
+                            }
+                        } catch (error) {
+                            return '';
+                        }
+                        return '';
+                    })();
+                    return (
+                        number.includes(term) ||
+                        identifier.includes(term) ||
+                        site.includes(term) ||
+                        dateString.includes(term)
+                    );
+                });
+            }, [documents, searchTerm, type]);
+
             const groupedDocuments = useMemo(() => {
-                if (!documents) return {};
+                const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
+                if (!source.length) return {};
                 if (type !== 'dr_manager') {
-                    return { 'All': documents };
+                    return { 'All': source };
                 }
-                return documents.reduce((acc, doc) => {
+                return source.reduce((acc, doc) => {
                     const key = doc.siteName || 'Uncategorized';
                     if (!acc[key]) {
                         acc[key] = [];
@@ -655,70 +924,112 @@
                     acc[key].push(doc);
                     return acc;
                 }, {});
-            }, [documents, type]);
-            
+            }, [filteredDocuments, documents, type]);
+
+            const handleView = (doc) => {
+                if (type === 'dr_manager') {
+                    setViewingReceipt(doc);
+                } else if (openDetailView) {
+                    openDetailView(doc);
+                }
+            };
+
+            const hasDocuments = Object.keys(groupedDocuments).length > 0;
+
             return (
                 <Modal onClose={onClose} size="7xl">
                     <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
-                            {Object.entries(groupedDocuments).map(([groupName, docs]) => (
-                                <div key={groupName} className="mb-8">
-                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
-                                    <table className="w-full text-left">
-                                        <thead className="sticky top-0 bg-gray-50 z-10">
-                                            <tr>
-                                                <th className="p-3">Number</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Identifier</th>
-                                                <th className="p-3">Items</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {docs.map(doc => {
-                                                const getStatusClass = (status) => {
-                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                    if (status === 'Finished') return 'text-blue-500 bg-blue-100';
-                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                    return 'text-gray-500 bg-gray-100';
-                                                }
-                                                return (
-                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                     <td className="p-3">{doc.items.length}</td>
-                                                     <td className="p-3">
-                                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                             {doc.status || 'Active'}
-                                                         </span>
-                                                     </td>
-                                                     <td className="p-3 text-right">
-                                                         <div className="flex gap-2 justify-end">
-                                                             <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                             {actions.map(action => (
-                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                             ))}
-                                                         </div>
-                                                     </td>
-                                                 </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ))}
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                            {type === 'dr_manager' && viewingReceipt && (
+                                <button onClick={() => setViewingReceipt(null)} className="px-4 py-2 text-sm rounded-full bg-gray-200 hover:bg-gray-300 no-print">Back to List</button>
+                            )}
                         </div>
+
+                        {type === 'dr_manager' && viewingReceipt ? (
+                            <div className="h-[60vh] overflow-y-auto border rounded-lg p-4 bg-white">
+                                <ReceiptDetailView
+                                    receipt={viewingReceipt}
+                                    template={template}
+                                    onClose={() => setViewingReceipt(null)}
+                                    renderInline={true}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                {type === 'dr_manager' && (
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                        placeholder="Search receipts by number, identifier, site, or date..."
+                                    />
+                                )}
+                                <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
+                                    {hasDocuments ? (
+                                        Object.entries(groupedDocuments).map(([groupName, docs]) => (
+                                            <div key={groupName} className="mb-8">
+                                                {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                                <table className="w-full text-left">
+                                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                                        <tr>
+                                                            <th className="p-3">Number</th>
+                                                            <th className="p-3">Date</th>
+                                                            <th className="p-3">Identifier</th>
+                                                            <th className="p-3">Items</th>
+                                                            <th className="p-3">Status</th>
+                                                            <th className="p-3 text-right">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {docs.map(doc => {
+                                                            const getStatusClass = (status) => {
+                                                                if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                                if (status === 'Finished') return 'text-blue-500 bg-blue-100';
+                                                                if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                                if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                                return 'text-gray-500 bg-gray-100';
+                                                            }
+                                                            return (
+                                                             <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                                 <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                                 <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                                 <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                                 <td className="p-3">{doc.items.length}</td>
+                                                                 <td className="p-3">
+                                                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                                         {doc.status || 'Active'}
+                                                                     </span>
+                                                                 </td>
+                                                                 <td className="p-3 text-right">
+                                                                     <div className="flex gap-2 justify-end">
+                                                                         <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                                         {actions.map(action => (
+                                                                             <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                                         ))}
+                                                                     </div>
+                                                                 </td>
+                                                             </tr>
+                                                            )
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-gray-500 italic">{type === 'dr_manager' ? 'No receipts found.' : 'No records found.'}</div>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </Modal>
             )
         };
         
         // Component to display a detailed, printable receipt view
-        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText }) => {
+        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText, renderInline = false }) => {
             const [isSaving, setIsSaving] = useState(false);
             const [isSaved, setIsSaved] = useState(false);
 
@@ -823,7 +1134,7 @@
                             {receipt.items.map(item => (
                                 <tr key={item.id} className="border-b">
                                     <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">pcs</td>
+                                    <td className="p-2 border">{formatUnitLabel(item.dispatchQty || item.requestedQty, item.unit || item.issuingUnit || 'Unit')}</td>
                                     <td className="p-2 border">{item.name}</td>
                                     {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
                                     {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
@@ -853,7 +1164,7 @@
 
             if (isPreview) {
                  return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
+                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
                          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
                              <div className="p-8">
                                  {content}
@@ -876,6 +1187,18 @@
                          </div>
                      </div>
                  )
+            }
+
+            if (renderInline) {
+                return (
+                    <div className="space-y-4">
+                        {content}
+                        <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Back to List</button>
+                            <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                        </div>
+                    </div>
+                );
             }
 
             return (
@@ -1205,6 +1528,7 @@
             const [notification, setNotification] = useState(null);
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
+            const [receiptDraft, setReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             
@@ -1593,9 +1917,19 @@
                 setModal(type);
             };
 
-            const closeModal = () => {
+            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
+                setPendingReceipt(null);
+                if (!preserveReceiptDraft) {
+                    setReceiptDraft(null);
+                }
+            };
+
+            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
+            const returnToReceiptComposer = () => {
+                setPendingReceipt(null);
+                setModal('receipt');
             };
 
             // --- Render Logic ---
@@ -1694,24 +2028,44 @@
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onFinalize={handlePreviewAndFinalize} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'receipt' && (
+                        <DeliveryReceiptForm
+                            inventory={inventory}
+                            sites={sites}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeReceiptComposer}
+                            setNotification={setNotification}
+                            initialData={receiptDraft}
+                            onDraftChange={setReceiptDraft}
+                        />
+                    )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
 
-                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={drManagerActions} type="dr_manager"/>}
+                    {modal === 'dr_manager' && (
+                        <DocumentHistoryModal
+                            documents={deliveryReceipts}
+                            onClose={closeModal}
+                            openDetailView={(r) => openModal('dr_detail', r)}
+                            title="Delivery Receipt Manager"
+                            actions={drManagerActions}
+                            type="dr_manager"
+                            template={drTemplate}
+                        />
+                    )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
                     
                     {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
-                        <ReceiptDetailView 
-                            receipt={pendingReceipt} 
-                            template={drTemplate} 
-                            isPreview={true} 
+                        <ReceiptDetailView
+                            receipt={pendingReceipt}
+                            template={drTemplate}
+                            isPreview={true}
                             onConfirm={() => handleSaveReceipt(pendingReceipt)}
-                            onCancel={() => { setPendingReceipt(null); setModal('receipt')}}
+                            onCancel={returnToReceiptComposer}
                             onDone={() => { setPendingReceipt(null); closeModal(); }}
                             confirmText="Save & Prepare for Printing"
                         />
