@@ -147,6 +147,8 @@
             return cleaned;
         };
 
+        const generateManualRowId = () => `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
         const setGlobalUnitOptions = (units = []) => {
             GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList(units);
         };
@@ -1131,6 +1133,229 @@
             );
         };
 
+        const ManualReceiptForm = ({
+            sites,
+            unitChoices = GLOBAL_UNIT_OPTIONS,
+            onFinalize,
+            onClose,
+            setNotification,
+            initialData = null,
+            onDraftChange = () => {}
+        }) => {
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+
+            const manualUnitChoices = useMemo(() => ensurePreferredUnitList(unitChoices), [unitChoices]);
+            const manualDefaultUnit = manualUnitChoices[0] || 'PC/s';
+            const manualPreviewFocusRef = useRef(null);
+            const [manualFocusId, setManualFocusId] = useState(null);
+
+            const buildManualItem = useCallback((item = {}) => ({
+                id: item.id || generateManualRowId(),
+                dispatchQty: item.dispatchQty ?? item.requestedQty ?? '',
+                unit: item.unit || manualDefaultUnit,
+                name: item.name || '',
+                price: item.price ?? '',
+                isManual: true
+            }), [manualDefaultUnit]);
+
+            const [manualItems, setManualItems] = useState(() => {
+                if (initialData?.items?.length) {
+                    return initialData.items.map(buildManualItem);
+                }
+                return [buildManualItem()];
+            });
+
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setShowPrice(initialData.showPrice ?? true);
+                    if (initialData.items && initialData.items.length) {
+                        setManualItems(initialData.items.map(buildManualItem));
+                    } else {
+                        setManualItems([buildManualItem()]);
+                    }
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setShowPrice(true);
+                    setManualItems([buildManualItem()]);
+                }
+                setManualFocusId(null);
+            }, [initialData, buildManualItem]);
+
+            useEffect(() => {
+                setManualItems(prev => prev.map(item => {
+                    if (!item.unit || !manualUnitChoices.length) {
+                        return { ...item, unit: manualDefaultUnit };
+                    }
+                    const hasMatch = manualUnitChoices.some(option => option.toLowerCase() === item.unit.toLowerCase());
+                    return hasMatch ? item : { ...item, unit: manualDefaultUnit };
+                }));
+            }, [manualUnitChoices, manualDefaultUnit]);
+
+            useEffect(() => {
+                if (manualFocusId && manualPreviewFocusRef.current) {
+                    manualPreviewFocusRef.current.focus();
+                    setManualFocusId(null);
+                }
+            }, [manualFocusId]);
+
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const handleManualItemChange = (id, field, rawValue) => {
+                setManualItems(prev => prev.map(item => {
+                    if (item.id !== id) return item;
+                    if (field === 'dispatchQty') {
+                        return { ...item, dispatchQty: (rawValue || '').replace(/[^0-9.]/g, '') };
+                    }
+                    if (field === 'price') {
+                        return { ...item, price: (rawValue || '').replace(/[^0-9.]/g, '') };
+                    }
+                    if (field === 'name') {
+                        return { ...item, name: (rawValue || '').toUpperCase() };
+                    }
+                    if (field === 'unit') {
+                        return { ...item, unit: rawValue };
+                    }
+                    return item;
+                }));
+            };
+
+            const handleAddManualRow = () => {
+                const newRow = buildManualItem({ dispatchQty: '', unit: manualDefaultUnit, name: '', price: '' });
+                setManualItems(prev => [...prev, newRow]);
+                setManualFocusId(newRow.id);
+            };
+
+            const handleRemoveManualRow = (id) => {
+                setManualItems(prev => {
+                    const updated = prev.filter(item => item.id !== id);
+                    if (updated.length === 0) {
+                        const replacement = buildManualItem({ dispatchQty: '', unit: manualDefaultUnit, name: '', price: '' });
+                        setManualFocusId(replacement.id);
+                        return [replacement];
+                    }
+                    return updated;
+                });
+            };
+
+            const handleFinalize = () => {
+                const manualWithQtyButNoName = manualItems.some(item => Number(item.dispatchQty || 0) > 0 && !(item.name && item.name.trim()));
+                if (manualWithQtyButNoName) {
+                    setNotification({ type: 'error', message: 'Please add a description for each manual item with a quantity.' });
+                    return;
+                }
+
+                const manualWithNameButNoQty = manualItems.some(item => (item.name && item.name.trim()) && !(Number(item.dispatchQty || 0) > 0));
+                if (manualWithNameButNoQty) {
+                    setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for each manual item.' });
+                    return;
+                }
+
+                if (!siteId) {
+                    setNotification({ type: 'error', message: 'Please select a site.' });
+                    return;
+                }
+
+                const cleanedItems = manualItems.map(item => {
+                    const quantity = Number(item.dispatchQty || 0);
+                    const safeQuantity = Number.isFinite(quantity) && quantity >= 0 ? quantity : 0;
+                    const normalizedPriceRaw = Number(item.price ?? 0);
+                    const normalizedPrice = Number.isFinite(normalizedPriceRaw) && normalizedPriceRaw >= 0 ? normalizedPriceRaw : 0;
+                    const normalizedUnit = (item.unit && item.unit.trim()) || manualDefaultUnit;
+                    return {
+                        ...item,
+                        dispatchQty: safeQuantity,
+                        unit: normalizedUnit,
+                        price: normalizedPrice,
+                        name: (item.name || '').trim().toUpperCase(),
+                        isManual: true
+                    };
+                });
+
+                const finalItems = cleanedItems.filter(item => item.dispatchQty > 0 && item.name);
+
+                if (finalItems.length === 0) {
+                    setNotification({ type: 'error', message: 'Please add at least one manual line with quantity greater than zero.' });
+                    return;
+                }
+
+                const receiptData = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: finalItems,
+                    showPrice,
+                    origin: 'manual'
+                };
+
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            };
+
+            return (
+                <Modal onClose={onClose} size="6xl">
+                    <div className="space-y-6">
+                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
+                            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                <input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} />
+                                Show prices on preview
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg uppercase">
+                                <option value="">Select Site</option>
+                                {sites.map(site => (
+                                    <option key={site.id} value={site.id}>{site.name}</option>
+                                ))}
+                            </select>
+                            <input type="text" value={customerName} onChange={handleUppercaseChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Customer / Identifier" />
+                            <input type="text" value={address} onChange={handleUppercaseChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Address" />
+                            <input type="text" value={poNumber} onChange={handleUppercaseChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="P.O. Number" />
+                            <div className="md:col-span-2 lg:col-span-4">
+                                <input type="text" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Remarks" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <ManualReceiptPreviewEditor
+                                items={manualItems}
+                                onItemChange={handleManualItemChange}
+                                onAddLine={handleAddManualRow}
+                                onRemoveLine={handleRemoveManualRow}
+                                unitOptions={manualUnitChoices}
+                                showPrice={showPrice}
+                                focusRef={manualPreviewFocusRef}
+                                focusId={manualFocusId}
+                                meta={{ customerName, address, poNumber, remarks }}
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-4 pt-4 border-t">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                            <button type="button" onClick={handleFinalize} className="px-6 py-2 text-white bg-teal-600 rounded-full hover:bg-teal-700">Preview Receipt</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
         const DeliveryReceiptForm = ({ inventory, sites, unitChoices = GLOBAL_UNIT_OPTIONS, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
             const [customerName, setCustomerName] = useState(initialData?.customerName || '');
@@ -1147,9 +1372,10 @@
             const [manualFocusId, setManualFocusId] = useState(null);
             const manualSectionRef = useRef(null);
             const manualPreviewFocusRef = useRef(null);
+            const allowManualPreview = false; // Manual receipt editor now lives in a dedicated composer
 
             const createManualDraftItem = useCallback(() => ({
-                id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                id: generateManualRowId(),
                 name: '',
                 dispatchQty: '',
                 unit: manualDefaultUnit,
@@ -1181,7 +1407,7 @@
                     setRemarks(initialData.remarks || '');
                     setCart(initialData.items || []);
                     setShowPrice(initialData.showPrice ?? true);
-                    setManualPreviewActive(initialData.items?.some(item => item.isManual) || false);
+                    setManualPreviewActive(allowManualPreview && (initialData.items?.some(item => item.isManual) || false));
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -1194,15 +1420,17 @@
                 }
                 setSelectionState({});
                 setManualFocusId(null);
-            }, [initialData]);
+            }, [initialData, allowManualPreview]);
 
             useEffect(() => {
+                if (!allowManualPreview) return;
                 if (!manualPreviewActive && cart.some(item => item.isManual)) {
                     setManualPreviewActive(true);
                 }
-            }, [cart, manualPreviewActive]);
+            }, [cart, manualPreviewActive, allowManualPreview]);
 
             useEffect(() => {
+                if (!allowManualPreview) return;
                 setCart(prev => {
                     let hasChange = false;
                     const updated = prev.map(item => {
@@ -1215,9 +1443,10 @@
                     });
                     return hasChange ? updated : prev;
                 });
-            }, [manualUnitChoices, manualDefaultUnit]);
+            }, [manualUnitChoices, manualDefaultUnit, allowManualPreview]);
 
             useEffect(() => {
+                if (!allowManualPreview) return;
                 if (manualPreviewActive && manualPreviewFocusRef.current) {
                     manualPreviewFocusRef.current.focus();
                     if (typeof manualPreviewFocusRef.current.select === 'function') {
@@ -1228,7 +1457,7 @@
                         return () => clearTimeout(timer);
                     }
                 }
-            }, [manualPreviewActive, manualFocusId, cart.length]);
+            }, [manualPreviewActive, manualFocusId, cart.length, allowManualPreview]);
 
             const filteredInventory = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
@@ -1291,6 +1520,7 @@
             };
 
             const handleOpenManualPreview = () => {
+                if (!allowManualPreview) return;
                 const focusId = ensureManualLine();
                 setManualPreviewActive(true);
                 setManualFocusId(focusId || null);
@@ -1339,16 +1569,18 @@
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
             const handleFinalize = () => {
-                const manualWithQtyButNoName = cart.some(item => item.isManual && Number(item.dispatchQty || 0) > 0 && !(item.name && item.name.trim()));
-                if (manualWithQtyButNoName) {
-                    setNotification({ type: 'error', message: 'Please add a description for each manual item with a quantity.' });
-                    return;
-                }
+                if (allowManualPreview) {
+                    const manualWithQtyButNoName = cart.some(item => item.isManual && Number(item.dispatchQty || 0) > 0 && !(item.name && item.name.trim()));
+                    if (manualWithQtyButNoName) {
+                        setNotification({ type: 'error', message: 'Please add a description for each manual item with a quantity.' });
+                        return;
+                    }
 
-                const manualWithNameButNoQty = cart.some(item => item.isManual && (item.name && item.name.trim()) && !(Number(item.dispatchQty || 0) > 0));
-                if (manualWithNameButNoQty) {
-                    setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for each manual item.' });
-                    return;
+                    const manualWithNameButNoQty = cart.some(item => item.isManual && (item.name && item.name.trim()) && !(Number(item.dispatchQty || 0) > 0));
+                    if (manualWithNameButNoQty) {
+                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for each manual item.' });
+                        return;
+                    }
                 }
 
                 const cleanedCart = cart.map(item => {
@@ -1473,33 +1705,37 @@
                             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                                 <div>
                                     <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
-                                    <p className="text-xs text-gray-500">Keep the list below in sync with your paper preview.</p>
+                                    <p className="text-xs text-gray-500">Review the list before generating the delivery receipt.</p>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handleOpenManualPreview}
-                                    className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
-                                >
-                                    {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
-                                </button>
+                                {allowManualPreview && (
+                                    <button
+                                        type="button"
+                                        onClick={handleOpenManualPreview}
+                                        className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                                    >
+                                        {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
+                                    </button>
+                                )}
                             </div>
-                            {manualPreviewActive ? (
-                                <ManualReceiptPreviewEditor
-                                    items={cart}
-                                    onItemChange={handleManualPreviewItemChange}
-                                    onAddLine={handleAddManualPreviewRow}
-                                    onRemoveLine={handleRemoveManualPreviewRow}
-                                    unitOptions={manualUnitChoices}
-                                    showPrice={showPrice}
-                                    focusRef={manualPreviewFocusRef}
-                                    focusId={manualFocusId}
-                                    meta={{ customerName, address, poNumber, remarks }}
-                                />
-                            ) : (
-                                <div className="p-4 bg-white border rounded-lg text-xs text-gray-600 leading-relaxed">
-                                    <p className="font-semibold text-gray-700">Manual delivery receipt needed?</p>
-                                    <p className="mt-1">Select “➕ Manual DR Item” to open the paper-style editor and type details directly onto the receipt.</p>
-                                </div>
+                            {allowManualPreview && (
+                                manualPreviewActive ? (
+                                    <ManualReceiptPreviewEditor
+                                        items={cart}
+                                        onItemChange={handleManualPreviewItemChange}
+                                        onAddLine={handleAddManualPreviewRow}
+                                        onRemoveLine={handleRemoveManualPreviewRow}
+                                        unitOptions={manualUnitChoices}
+                                        showPrice={showPrice}
+                                        focusRef={manualPreviewFocusRef}
+                                        focusId={manualFocusId}
+                                        meta={{ customerName, address, poNumber, remarks }}
+                                    />
+                                ) : (
+                                    <div className="p-4 bg-white border rounded-lg text-xs text-gray-600 leading-relaxed">
+                                        <p className="font-semibold text-gray-700">Manual delivery receipt needed?</p>
+                                        <p className="mt-1">Select “➕ Manual DR Item” to open the paper-style editor and type details directly onto the receipt.</p>
+                                    </div>
+                                )
                             )}
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
@@ -2189,8 +2425,10 @@
             const [currentItem, setCurrentItem] = useState(null);
             const [pendingReceipt, setPendingReceipt] = useState(null);
             const [receiptDraft, setReceiptDraft] = useState(null);
+            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
+            const [pendingReceiptSource, setPendingReceiptSource] = useState(null);
 
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -2386,23 +2624,27 @@
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const inventoryItems = (receiptData.items || []).filter(item => !item.isManual);
+                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
                         for(let i = 0; i < itemDocs.length; i++) {
                             const invItemDoc = itemDocs[i];
-                            const requestedItem = receiptData.items[i];
-                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
-                             }
+                            const requestedItem = inventoryItems[i];
+                            if (!invItemDoc.exists()) {
+                                throw new Error(`Inventory item "${requestedItem?.name || requestedItem?.id}" no longer exists.`);
+                            }
+                            if (invItemDoc.data().qty < requestedItem.dispatchQty) {
+                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                            }
                         }
-                        
+
                         const newDrNumber = siteDoc.data().lastDrNumber + 1;
                         const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
                         finalDrNumber = drNumberString;
 
-                        for (let i = 0; i < receiptData.items.length; i++) {
-                            transaction.update(itemRefs[i], { qty: increment(-receiptData.items[i].dispatchQty) });
+                        for (let i = 0; i < inventoryItems.length; i++) {
+                            transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
                         }
 
                         transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
@@ -2420,18 +2662,20 @@
             };
             
             const handlePreviewAndFinalize = (receiptData) => {
-                const selectedSite = sites.find(s => s.id === receiptData.siteId);
+                const { origin, ...payload } = receiptData || {};
+                const selectedSite = sites.find(s => s.id === payload.siteId);
                 const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
                 const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
 
                 const dataForPreview = {
-                    ...receiptData,
+                    ...payload,
                     drNumber: drNumberString,
                     siteName: selectedSite?.name || 'N/A',
                     createdAt: { toDate: () => new Date() } // Mock server timestamp
                 };
-                setPendingReceipt(dataForPreview); // Store the data
-                setModal('receipt_confirm_and_preview'); // Open the confirmation preview modal
+                setPendingReceiptSource(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceipt(dataForPreview);
+                setModal('receipt_confirm_and_preview');
             };
 
             const handleVoidReceipt = async (receipt) => {
@@ -2603,19 +2847,29 @@
                 setModal(type);
             };
 
-            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
+            const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
                 setPendingReceipt(null);
+                setPendingReceiptSource(null);
                 if (!preserveReceiptDraft) {
                     setReceiptDraft(null);
+                }
+                if (!preserveManualDraft) {
+                    setManualReceiptDraft(null);
                 }
             };
 
             const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
+                const origin = pendingReceiptSource;
                 setPendingReceipt(null);
-                setModal('receipt');
+                if (origin === 'manual') {
+                    setModal('manual_receipt');
+                } else {
+                    setModal('receipt');
+                }
+                setPendingReceiptSource(null);
             };
 
             // --- Render Logic ---
@@ -2680,8 +2934,9 @@
                                          <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
                                      
-                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
+                                    <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
+                                    <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
                             
@@ -2724,6 +2979,17 @@
                             setNotification={setNotification}
                             initialData={receiptDraft}
                             onDraftChange={setReceiptDraft}
+                        />
+                    )}
+                    {modal === 'manual_receipt' && (
+                        <ManualReceiptForm
+                            sites={sites}
+                            unitChoices={settings.unitOptions}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeModal}
+                            setNotification={setNotification}
+                            initialData={manualReceiptDraft}
+                            onDraftChange={setManualReceiptDraft}
                         />
                     )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
