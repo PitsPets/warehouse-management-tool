@@ -40,21 +40,29 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'PC', 'Roll', 'Meter', 'Set', 'Assy'];
+        const DEFAULT_ISSUING_UNITS = ['Roll/s', 'PC/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s', 'PC', 'Roll', 'Meter', 'Set'];
 
         const UNIT_DISPLAY_OVERRIDES = {
+            assy: 'Assy',
+            box: 'Box',
+            length: 'Length',
+            meter: 'Meter',
+            'meter/s': 'Meter',
             pc: 'PC',
             pcs: 'PCS',
             'pc/s': 'PC',
             roll: 'Roll',
-            meter: 'Meter',
+            'roll/s': 'Roll',
             set: 'Set',
-            assy: 'Assy'
+            'set/s': 'Set'
         };
 
         const UNIT_PLURAL_OVERRIDES = {
             assy: 'Assys',
-            'pc/s': 'PCs'
+            'pc/s': 'PCs',
+            'roll/s': 'Rolls',
+            'meter/s': 'Meters',
+            'set/s': 'Sets'
         };
 
         const formatUnitLabel = (quantity, unit) => {
@@ -144,7 +152,11 @@
                 return item.issuingUnit.trim();
             }
             const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'Unit';
+            if (!options.length) {
+                return 'Unit';
+            }
+            const preferredPc = options.find(option => typeof option === 'string' && option.toLowerCase() === 'pc/s');
+            return preferredPc || options[0];
         };
 
         // --- UI Components ---
@@ -715,6 +727,15 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
             const [selectionState, setSelectionState] = useState({});
+            const manualDefaultUnit = useMemo(() => {
+                const preferred = DEFAULT_ISSUING_UNITS.find(unit => unit.toLowerCase() === 'pc/s');
+                if (preferred) {
+                    return preferred;
+                }
+                return DEFAULT_ISSUING_UNITS[0] || 'Unit';
+            }, []);
+            const manualUnitChoices = useMemo(() => uniqueUnits(DEFAULT_ISSUING_UNITS), []);
+            const [manualItem, setManualItem] = useState({ name: '', qty: '', unit: manualDefaultUnit, price: '' });
 
             useEffect(() => {
                 if (initialData) {
@@ -735,7 +756,8 @@
                     setShowPrice(true);
                 }
                 setSelectionState({});
-            }, [initialData]);
+                setManualItem({ name: '', qty: '', unit: manualDefaultUnit, price: '' });
+            }, [initialData, manualDefaultUnit]);
 
             const filteredInventory = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
@@ -763,6 +785,49 @@
                         [field]: field === 'qty' ? value.replace(/[^0-9.]/g, '') : value
                     }
                 }));
+            };
+
+            const handleManualFieldChange = (field) => (e) => {
+                const rawValue = e.target.value;
+                const sanitizedValue = (field === 'qty' || field === 'price') ? rawValue.replace(/[^0-9.]/g, '') : rawValue;
+                const value = field === 'name' ? sanitizedValue.toUpperCase() : sanitizedValue;
+                setManualItem(prev => ({
+                    ...prev,
+                    [field]: value
+                }));
+            };
+
+            const addManualItemToCart = () => {
+                const trimmedName = manualItem.name.trim();
+                if (!trimmedName) {
+                    setNotification({ type: 'error', message: 'Please provide an item name for manual entries.' });
+                    return;
+                }
+
+                const qtyValue = Number(manualItem.qty);
+                if (!Number.isFinite(qtyValue) || qtyValue <= 0) {
+                    setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for manual items.' });
+                    return;
+                }
+
+                const chosenUnit = (manualItem.unit && manualItem.unit.trim()) || manualDefaultUnit;
+                const parsedPrice = Number(manualItem.price);
+                const normalizedPrice = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0;
+                const manualId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+                setCart(prev => [
+                    ...prev,
+                    {
+                        id: manualId,
+                        name: trimmedName,
+                        dispatchQty: qtyValue,
+                        unit: chosenUnit,
+                        price: normalizedPrice,
+                        isManual: true
+                    }
+                ]);
+
+                setManualItem({ name: '', qty: '', unit: chosenUnit, price: '' });
             };
 
             const addToCart = (item) => {
@@ -902,6 +967,54 @@
                         {/* Receipt Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
+                            <div className="space-y-3 p-4 bg-white border rounded-lg">
+                                <h4 className="text-sm font-semibold text-gray-700">Add Manual Item</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Item Name"
+                                        value={manualItem.name}
+                                        onChange={handleManualFieldChange('name')}
+                                        className="w-full px-3 py-2 border rounded-lg uppercase"
+                                    />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        placeholder="Quantity"
+                                        value={manualItem.qty}
+                                        onChange={handleManualFieldChange('qty')}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                    />
+                                    <select
+                                        value={manualItem.unit}
+                                        onChange={handleManualFieldChange('unit')}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                    >
+                                        {manualUnitChoices.map(option => (
+                                            <option key={option} value={option}>{option}</option>
+                                        ))}
+                                    </select>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Unit Price (Optional)"
+                                        value={manualItem.price}
+                                        onChange={handleManualFieldChange('price')}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                    />
+                                </div>
+                                <div className="flex justify-end">
+                                    <button
+                                        onClick={addManualItemToCart}
+                                        className="px-4 py-2 bg-teal-600 text-white rounded-full hover:bg-teal-700 disabled:bg-gray-300"
+                                        disabled={!manualItem.name.trim() || !manualItem.qty}
+                                    >
+                                        Add Manual Item
+                                    </button>
+                                </div>
+                            </div>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
