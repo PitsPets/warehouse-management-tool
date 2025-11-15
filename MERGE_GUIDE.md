@@ -28,3 +28,23 @@ The script automatically:
 - Stages the resolved files so you can review them with `git status`
 
 Once the script finishes, confirm the result locally (e.g., with `git diff --staged`) and push the commit. When the branch is updated, GitHub will recognize that the conflict is gone so you can press **Merge** without opening the editor again.
+
+## Resetting your branch to match the remote
+
+If you just want your local checkout to mirror the latest code from a remote branch (for example, to get the stable "deploy 4"
+release without touching individual conflicts), run:
+
+```bash
+# from the repository root
+./scripts/reset-to-remote.sh origin main    # replace with the remote/branch you need
+```
+
+The script will:
+
+1. Fetch the chosen remote branch
+2. Hard-reset your current branch to that remote revision
+3. Remove any untracked files that might be left over from earlier merges
+
+> ⚠️ Because this performs a hard reset, **any uncommitted changes in your working tree will be lost**. Make sure you have pushed
+> or stashed anything important before running it. Once the script completes, your copy will exactly match the remote you
+> specified, so you can open the project or deploy it without manually resolving conflicts.
