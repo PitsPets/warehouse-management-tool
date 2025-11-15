@@ -40,183 +40,6 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-        const loadStoredJSON = (key, fallback = null) => {
-            if (!isBrowserEnvironment) return fallback;
-            try {
-                const rawValue = window.localStorage.getItem(key);
-                return rawValue ? JSON.parse(rawValue) : fallback;
-            } catch (error) {
-                console.warn(`Failed to parse stored value for "${key}":`, error);
-                return fallback;
-            }
-        };
-
-        const persistStoredJSON = (key, value) => {
-            if (!isBrowserEnvironment) return;
-            try {
-                if (value === null || value === undefined) {
-                    window.localStorage.removeItem(key);
-                } else {
-                    window.localStorage.setItem(key, JSON.stringify(value));
-                }
-            } catch (error) {
-                console.warn(`Failed to persist value for "${key}":`, error);
-            }
-        };
-
-        const escapeCSVValue = (value) => {
-            if (value === null || value === undefined) return '';
-            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
-            if (/[",]/.test(stringValue)) {
-                return '"' + stringValue.replace(/"/g, '""') + '"';
-            }
-            return stringValue;
-        };
-
-        const exportInventoryToCSV = (items = []) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
-            const rows = items.map(item => [
-                item.sku || '',
-                item.name || '',
-                item.brand || '',
-                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
-                item.qty === undefined || item.qty === null ? '' : item.qty,
-                item.price === undefined || item.price === null ? '' : item.price,
-                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
-            ]);
-
-            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        };
-
-        const formatDateForSearch = (timestamp) => {
-            if (!timestamp) return '';
-            try {
-                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
-                if (Number.isNaN(date.getTime())) return '';
-                const iso = date.toISOString().slice(0, 10);
-                const locale = date.toLocaleDateString();
-                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                return `${iso} ${locale} ${longLocale}`.toLowerCase();
-            } catch (error) {
-                return '';
-            }
-        };
-
-        const STORAGE_KEYS = {
-            manualReceiptDraft: 'wm_manual_receipt_draft',
-            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            'pc': 'PC/s',
-            'pcs': 'PC/s',
-            'pc/s': 'PC/s',
-            'roll': 'Roll/s',
-            'rolls': 'Roll/s',
-            'roll/s': 'Roll/s',
-            'meter': 'Meter/s',
-            'meters': 'Meter/s',
-            'meter/s': 'Meter/s',
-            'set': 'Set/s',
-            'sets': 'Set/s',
-            'set/s': 'Set/s',
-            'assy': 'Assy',
-            'box': 'Box',
-            'length': 'Length'
-        };
-
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        const normalizeUnitValue = (value) => {
-            if (typeof value !== 'string') return '';
-            const trimmed = value.trim();
-            if (!trimmed) return '';
-            const key = trimmed.toLowerCase();
-            if (UNIT_DISPLAY_OVERRIDES[key]) {
-                return UNIT_DISPLAY_OVERRIDES[key];
-            }
-            if (trimmed.includes('/')) {
-                return trimmed
-                    .split('/')
-                    .map((segment, index) => index === 0
-                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
-                        : segment.toLowerCase())
-                    .join('/');
-            }
-            if (trimmed.length <= 4) {
-                return trimmed.toUpperCase();
-            }
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-        };
-
-        const uniqueUnits = (list) => {
-            const seen = new Set();
-            const ordered = [];
-            list.forEach(unit => {
-                const normalized = normalizeUnitValue(unit);
-                if (!normalized) return;
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) return;
-                seen.add(key);
-                ordered.push(normalized);
-            });
-            return ordered;
-        };
-
-        const ensurePreferredUnitList = (units = []) => {
-            const source = Array.isArray(units) ? units : [];
-            const normalizedSource = source.map(normalizeUnitValue);
-            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
-        };
-
-        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
-
-        const getPreferredUnit = (units) => {
-            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
-            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
-        };
-
-        const resolveUnitOptions = (item = {}) => {
-            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-            for (const list of candidateLists) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = ensurePreferredUnitList(list);
-                    if (cleaned.length > 0) {
-                        return cleaned;
-                    }
-                }
-            }
-            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
-            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
-            if (fallbackUnits.length > 0) {
-                return fallbackUnits;
-            }
-            return ensurePreferredUnitList();
-        };
-
-        const getPrimaryIssuingUnit = (item = {}) => {
-            if (typeof item.unit === 'string' && item.unit.trim()) {
-                return normalizeUnitValue(item.unit);
-            }
-            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return normalizeUnitValue(item.issuingUnit);
-            }
-            const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'PC/s';
-        };
-
         const UNIT_DISPLAY_OVERRIDES = {
             'pc': 'PC/s',
             'pcs': 'PC/s',
@@ -485,19 +308,9 @@
                 <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
                     <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
-                        <div className="flex flex-wrap gap-2 items-center justify-end w-full sm:w-auto">
-                            <div className="relative w-full sm:w-64">
-                                <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => exportInventoryToCSV(filteredInventory)}
-                                disabled={filteredInventory.length === 0}
-                                className="px-4 py-1.5 text-sm font-semibold rounded-full border border-gray-200 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                ⬇️ Export CSV
-                            </button>
+                        <div className="relative w-full sm:w-64">
+                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
@@ -1118,28 +931,16 @@
                 }
                 return [buildRow()];
             });
-            const draftSnapshotRef = useRef('null');
 
             useEffect(() => {
                 if (initialData) {
-                    const sanitizedItems = initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()];
                     setSiteId(initialData.siteId || '');
                     setCustomerName(initialData.customerName || '');
                     setAddress(initialData.address || '');
                     setPoNumber(initialData.poNumber || '');
                     setRemarks(initialData.remarks || '');
                     setShowPrice(initialData.showPrice ?? true);
-                    setItems(sanitizedItems);
-                    draftSnapshotRef.current = JSON.stringify({
-                        siteId: initialData.siteId || '',
-                        customerName: initialData.customerName || '',
-                        address: initialData.address || '',
-                        poNumber: initialData.poNumber || '',
-                        remarks: initialData.remarks || '',
-                        items: sanitizedItems,
-                        showPrice: initialData.showPrice ?? true,
-                        origin: 'manual'
-                    });
+                    setItems(initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()]);
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -1148,64 +949,8 @@
                     setRemarks('');
                     setShowPrice(true);
                     setItems([buildRow()]);
-                    draftSnapshotRef.current = 'null';
                 }
             }, [initialData, buildRow, normalizeManualItem]);
-
-            useEffect(() => {
-                const normalizedItems = items.map(normalizeManualItem);
-                const hasItemChanges = normalizedItems.some(item => {
-                    const hasName = item.name.trim().length > 0;
-                    const qtyChanged = Number(item.dispatchQty) !== 1 && Number(item.dispatchQty) > 0;
-                    const hasPrice = Number(item.price) > 0;
-                    return hasName || hasPrice || qtyChanged;
-                });
-                const hasContent = Boolean(
-                    siteId ||
-                    customerName ||
-                    address ||
-                    poNumber ||
-                    remarks ||
-                    hasItemChanges
-                );
-
-                if (!hasContent) {
-                    if (draftSnapshotRef.current !== 'null') {
-                        draftSnapshotRef.current = 'null';
-                        onDraftChange(null);
-                    }
-                    return;
-                }
-
-                const draftPayload = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: normalizedItems,
-                    showPrice,
-                    origin: 'manual'
-                };
-
-                const serialized = JSON.stringify(draftPayload);
-                if (draftSnapshotRef.current !== serialized) {
-                    draftSnapshotRef.current = serialized;
-                    onDraftChange(draftPayload);
-                }
-            }, [siteId, customerName, address, poNumber, remarks, items, showPrice, normalizeManualItem, onDraftChange]);
-
-            const handleReset = () => {
-                setSiteId('');
-                setCustomerName('');
-                setAddress('');
-                setPoNumber('');
-                setRemarks('');
-                setShowPrice(true);
-                setItems([buildRow()]);
-                draftSnapshotRef.current = 'null';
-                onDraftChange(null);
-            };
 
             const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
@@ -1259,7 +1004,6 @@
                     origin: 'manual'
                 };
 
-                draftSnapshotRef.current = JSON.stringify(receiptData);
                 onDraftChange(receiptData);
                 onFinalize(receiptData);
             };
@@ -1269,22 +1013,13 @@
                     <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleReset}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
-                                >
-                                    🗑️ Start New Draft
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleAddRow}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
-                                >
-                                    ➕ Add Manual Item
-                                </button>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={handleAddRow}
+                                className="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                            >
+                                ➕ Add Manual Item
+                            </button>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1394,31 +1129,16 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
             const [selectionState, setSelectionState] = useState({});
-            const draftSnapshotRef = useRef('null');
 
             useEffect(() => {
                 if (initialData) {
-                    const sanitizedItems = (initialData.items || []).map(item => ({
-                        ...item,
-                        unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
-                    }));
                     setSiteId(initialData.siteId || '');
                     setCustomerName(initialData.customerName || '');
                     setAddress(initialData.address || '');
                     setPoNumber(initialData.poNumber || '');
                     setRemarks(initialData.remarks || '');
-                    setCart(sanitizedItems);
+                    setCart(initialData.items || []);
                     setShowPrice(initialData.showPrice ?? true);
-                    draftSnapshotRef.current = JSON.stringify({
-                        siteId: initialData.siteId || '',
-                        customerName: initialData.customerName || '',
-                        address: initialData.address || '',
-                        poNumber: initialData.poNumber || '',
-                        remarks: initialData.remarks || '',
-                        items: sanitizedItems,
-                        showPrice: initialData.showPrice ?? true,
-                        origin: 'inventory'
-                    });
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -1427,64 +1147,9 @@
                     setRemarks('');
                     setCart([]);
                     setShowPrice(true);
-                    draftSnapshotRef.current = 'null';
                 }
                 setSelectionState({});
             }, [initialData]);
-
-            useEffect(() => {
-                const normalizedCart = cart.map(item => ({
-                    ...item,
-                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
-                }));
-
-                const hasContent = Boolean(
-                    siteId ||
-                    customerName ||
-                    address ||
-                    poNumber ||
-                    remarks ||
-                    normalizedCart.length > 0
-                );
-
-                if (!hasContent) {
-                    if (draftSnapshotRef.current !== 'null') {
-                        draftSnapshotRef.current = 'null';
-                        onDraftChange(null);
-                    }
-                    return;
-                }
-
-                const draftPayload = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: normalizedCart,
-                    showPrice,
-                    origin: 'inventory'
-                };
-
-                const serialized = JSON.stringify(draftPayload);
-                if (draftSnapshotRef.current !== serialized) {
-                    draftSnapshotRef.current = serialized;
-                    onDraftChange(draftPayload);
-                }
-            }, [siteId, customerName, address, poNumber, remarks, cart, showPrice, onDraftChange]);
-
-            const handleResetForm = () => {
-                setSiteId('');
-                setCustomerName('');
-                setAddress('');
-                setPoNumber('');
-                setRemarks('');
-                setCart([]);
-                setShowPrice(true);
-                setSelectionState({});
-                draftSnapshotRef.current = 'null';
-                onDraftChange(null);
-            };
 
             const filteredInventory = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
@@ -1571,7 +1236,6 @@
                 }));
 
                 const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
-                draftSnapshotRef.current = JSON.stringify({ ...receiptData, origin: 'inventory' });
                 onDraftChange(receiptData);
                 onFinalize(receiptData);
             }
@@ -1581,18 +1245,9 @@
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleResetForm}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
-                                >
-                                    🔄 Reset Form
-                                </button>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
                             </div>
-                        </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
                                      <option value="">-- Select Site --</option>
@@ -1717,14 +1372,7 @@
                 return baseDocs.filter(doc => {
                     const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
                     const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
-                    const siteName = (doc.siteName || '').toLowerCase();
-                    const dateTokens = formatDateForSearch(doc.createdAt);
-                    return (
-                        number.includes(term) ||
-                        identifier.includes(term) ||
-                        siteName.includes(term) ||
-                        (dateTokens && dateTokens.includes(term))
-                    );
+                    return number.includes(term) || identifier.includes(term);
                 });
             }, [documents, searchTerm, type]);
 
@@ -1781,7 +1429,7 @@
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full px-3 py-2 border rounded-lg"
-                                        placeholder="Search by number, site, name, or date (e.g. 2024-03-18)"
+                                        placeholder="Search receipts by number or identifier..."
                                     />
                                 )}
                                 <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
@@ -2349,23 +1997,15 @@
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
             const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
-            const [receiptDraft, setReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.inventoryReceiptDraft));
-            const [manualReceiptDraft, setManualReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.manualReceiptDraft));
+            const [receiptDraft, setReceiptDraft] = useState(null);
+            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
-
+            
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             // --- Firebase Initialization and Auth Effect ---
-            useEffect(() => {
-                persistStoredJSON(STORAGE_KEYS.manualReceiptDraft, manualReceiptDraft);
-            }, [manualReceiptDraft]);
-
-            useEffect(() => {
-                persistStoredJSON(STORAGE_KEYS.inventoryReceiptDraft, receiptDraft);
-            }, [receiptDraft]);
-
             useEffect(() => {
                 try {
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -2578,14 +2218,9 @@
                         transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
                         transaction.update(siteRef, { lastDrNumber: increment(1) });
                     });
-
+                    
                     setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
                     await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
-                    if (pendingReceiptOrigin === 'manual') {
-                        setManualReceiptDraft(null);
-                    } else {
-                        setReceiptDraft(null);
-                    }
                     return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
@@ -2793,7 +2428,7 @@
                 }
             };
 
-            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: true });
+            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
                 setPendingReceipt(null);
                 setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
@@ -2901,7 +2536,7 @@
                             sites={sites}
                             unitOptions={settings.unitOptions}
                             onFinalize={handlePreviewAndFinalize}
-                            onClose={() => closeModal({ preserveManualDraft: true })}
+                            onClose={closeModal}
                             setNotification={setNotification}
                             initialData={manualReceiptDraft}
                             onDraftChange={setManualReceiptDraft}
