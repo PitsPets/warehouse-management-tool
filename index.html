@@ -40,778 +40,6 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-        const loadStoredJSON = (key, fallback = null) => {
-            if (!isBrowserEnvironment) return fallback;
-            try {
-                const rawValue = window.localStorage.getItem(key);
-                return rawValue ? JSON.parse(rawValue) : fallback;
-            } catch (error) {
-                console.warn(`Failed to parse stored value for "${key}":`, error);
-                return fallback;
-            }
-        };
-
-        const persistStoredJSON = (key, value) => {
-            if (!isBrowserEnvironment) return;
-            try {
-                if (value === null || value === undefined) {
-                    window.localStorage.removeItem(key);
-                } else {
-                    window.localStorage.setItem(key, JSON.stringify(value));
-                }
-            } catch (error) {
-                console.warn(`Failed to persist value for "${key}":`, error);
-            }
-        };
-
-        const escapeCSVValue = (value) => {
-            if (value === null || value === undefined) return '';
-            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
-            if (/[",]/.test(stringValue)) {
-                return '"' + stringValue.replace(/"/g, '""') + '"';
-            }
-            return stringValue;
-        };
-
-        const exportInventoryToCSV = (items = []) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
-            const rows = items.map(item => [
-                item.sku || '',
-                item.name || '',
-                item.brand || '',
-                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
-                item.qty === undefined || item.qty === null ? '' : item.qty,
-                item.price === undefined || item.price === null ? '' : item.price,
-                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
-            ]);
-
-            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        };
-
-        const formatDateForSearch = (timestamp) => {
-            if (!timestamp) return '';
-            try {
-                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
-                if (Number.isNaN(date.getTime())) return '';
-                const iso = date.toISOString().slice(0, 10);
-                const locale = date.toLocaleDateString();
-                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                return `${iso} ${locale} ${longLocale}`.toLowerCase();
-            } catch (error) {
-                return '';
-            }
-        };
-
-        const normalizeTimestamp = (timestamp) => {
-            if (!timestamp) return null;
-            try {
-                if (typeof timestamp.toDate === 'function') {
-                    const date = timestamp.toDate();
-                    if (!Number.isNaN(date.getTime())) {
-                        return date;
-                    }
-                }
-                const date = new Date(timestamp);
-                return Number.isNaN(date.getTime()) ? null : date;
-            } catch (error) {
-                return null;
-            }
-        };
-
-        const STORAGE_KEYS = {
-            manualReceiptDraft: 'wm_manual_receipt_draft',
-            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            'pc': 'PC/s',
-            'pcs': 'PC/s',
-            'pc/s': 'PC/s',
-            'roll': 'Roll/s',
-            'rolls': 'Roll/s',
-            'roll/s': 'Roll/s',
-            'meter': 'Meter/s',
-            'meters': 'Meter/s',
-            'meter/s': 'Meter/s',
-            'set': 'Set/s',
-            'sets': 'Set/s',
-            'set/s': 'Set/s',
-            'assy': 'Assy',
-            'box': 'Box',
-            'length': 'Length'
-        };
-
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        const normalizeUnitValue = (value) => {
-            if (typeof value !== 'string') return '';
-            const trimmed = value.trim();
-            if (!trimmed) return '';
-            const key = trimmed.toLowerCase();
-            if (UNIT_DISPLAY_OVERRIDES[key]) {
-                return UNIT_DISPLAY_OVERRIDES[key];
-            }
-            if (trimmed.includes('/')) {
-                return trimmed
-                    .split('/')
-                    .map((segment, index) => index === 0
-                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
-                        : segment.toLowerCase())
-                    .join('/');
-            }
-            if (trimmed.length <= 4) {
-                return trimmed.toUpperCase();
-            }
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-        };
-
-        const uniqueUnits = (list) => {
-            const seen = new Set();
-            const ordered = [];
-            list.forEach(unit => {
-                const normalized = normalizeUnitValue(unit);
-                if (!normalized) return;
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) return;
-                seen.add(key);
-                ordered.push(normalized);
-            });
-            return ordered;
-        };
-
-        const ensurePreferredUnitList = (units = []) => {
-            const source = Array.isArray(units) ? units : [];
-            const normalizedSource = source.map(normalizeUnitValue);
-            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
-        };
-
-        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
-
-        const getPreferredUnit = (units) => {
-            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
-            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
-        };
-
-        const resolveUnitOptions = (item = {}) => {
-            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-            for (const list of candidateLists) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = ensurePreferredUnitList(list);
-                    if (cleaned.length > 0) {
-                        return cleaned;
-                    }
-                }
-            }
-            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
-            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
-            if (fallbackUnits.length > 0) {
-                return fallbackUnits;
-            }
-            return ensurePreferredUnitList();
-        };
-
-        const getPrimaryIssuingUnit = (item = {}) => {
-            if (typeof item.unit === 'string' && item.unit.trim()) {
-                return normalizeUnitValue(item.unit);
-            }
-            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return normalizeUnitValue(item.issuingUnit);
-            }
-            const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'PC/s';
-        };
-
-        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-        const loadStoredJSON = (key, fallback = null) => {
-            if (!isBrowserEnvironment) return fallback;
-            try {
-                const rawValue = window.localStorage.getItem(key);
-                return rawValue ? JSON.parse(rawValue) : fallback;
-            } catch (error) {
-                console.warn(`Failed to parse stored value for "${key}":`, error);
-                return fallback;
-            }
-        };
-
-        const persistStoredJSON = (key, value) => {
-            if (!isBrowserEnvironment) return;
-            try {
-                if (value === null || value === undefined) {
-                    window.localStorage.removeItem(key);
-                } else {
-                    window.localStorage.setItem(key, JSON.stringify(value));
-                }
-            } catch (error) {
-                console.warn(`Failed to persist value for "${key}":`, error);
-            }
-        };
-
-        const escapeCSVValue = (value) => {
-            if (value === null || value === undefined) return '';
-            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
-            if (/[",]/.test(stringValue)) {
-                return '"' + stringValue.replace(/"/g, '""') + '"';
-            }
-            return stringValue;
-        };
-
-        const exportInventoryToCSV = (items = []) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
-            const rows = items.map(item => [
-                item.sku || '',
-                item.name || '',
-                item.brand || '',
-                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
-                item.qty === undefined || item.qty === null ? '' : item.qty,
-                item.price === undefined || item.price === null ? '' : item.price,
-                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
-            ]);
-
-            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        };
-
-        const formatDateForSearch = (timestamp) => {
-            if (!timestamp) return '';
-            try {
-                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
-                if (Number.isNaN(date.getTime())) return '';
-                const iso = date.toISOString().slice(0, 10);
-                const locale = date.toLocaleDateString();
-                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                return `${iso} ${locale} ${longLocale}`.toLowerCase();
-            } catch (error) {
-                return '';
-            }
-        };
-
-        const normalizeTimestamp = (timestamp) => {
-            if (!timestamp) return null;
-            try {
-                if (typeof timestamp.toDate === 'function') {
-                    const date = timestamp.toDate();
-                    if (!Number.isNaN(date.getTime())) {
-                        return date;
-                    }
-                }
-                const date = new Date(timestamp);
-                return Number.isNaN(date.getTime()) ? null : date;
-            } catch (error) {
-                return null;
-            }
-        };
-
-        const STORAGE_KEYS = {
-            manualReceiptDraft: 'wm_manual_receipt_draft',
-            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            'pc': 'PC/s',
-            'pcs': 'PC/s',
-            'pc/s': 'PC/s',
-            'roll': 'Roll/s',
-            'rolls': 'Roll/s',
-            'roll/s': 'Roll/s',
-            'meter': 'Meter/s',
-            'meters': 'Meter/s',
-            'meter/s': 'Meter/s',
-            'set': 'Set/s',
-            'sets': 'Set/s',
-            'set/s': 'Set/s',
-            'assy': 'Assy',
-            'box': 'Box',
-            'length': 'Length'
-        };
-
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        const normalizeUnitValue = (value) => {
-            if (typeof value !== 'string') return '';
-            const trimmed = value.trim();
-            if (!trimmed) return '';
-            const key = trimmed.toLowerCase();
-            if (UNIT_DISPLAY_OVERRIDES[key]) {
-                return UNIT_DISPLAY_OVERRIDES[key];
-            }
-            if (trimmed.includes('/')) {
-                return trimmed
-                    .split('/')
-                    .map((segment, index) => index === 0
-                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
-                        : segment.toLowerCase())
-                    .join('/');
-            }
-            if (trimmed.length <= 4) {
-                return trimmed.toUpperCase();
-            }
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-        };
-
-        const uniqueUnits = (list) => {
-            const seen = new Set();
-            const ordered = [];
-            list.forEach(unit => {
-                const normalized = normalizeUnitValue(unit);
-                if (!normalized) return;
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) return;
-                seen.add(key);
-                ordered.push(normalized);
-            });
-            return ordered;
-        };
-
-        const ensurePreferredUnitList = (units = []) => {
-            const source = Array.isArray(units) ? units : [];
-            const normalizedSource = source.map(normalizeUnitValue);
-            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
-        };
-
-        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
-
-        const getPreferredUnit = (units) => {
-            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
-            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
-        };
-
-        const resolveUnitOptions = (item = {}) => {
-            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-            for (const list of candidateLists) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = ensurePreferredUnitList(list);
-                    if (cleaned.length > 0) {
-                        return cleaned;
-                    }
-                }
-            }
-            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
-            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
-            if (fallbackUnits.length > 0) {
-                return fallbackUnits;
-            }
-            return ensurePreferredUnitList();
-        };
-
-        const getPrimaryIssuingUnit = (item = {}) => {
-            if (typeof item.unit === 'string' && item.unit.trim()) {
-                return normalizeUnitValue(item.unit);
-            }
-            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return normalizeUnitValue(item.issuingUnit);
-            }
-            const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'PC/s';
-        };
-
-        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-        const loadStoredJSON = (key, fallback = null) => {
-            if (!isBrowserEnvironment) return fallback;
-            try {
-                const rawValue = window.localStorage.getItem(key);
-                return rawValue ? JSON.parse(rawValue) : fallback;
-            } catch (error) {
-                console.warn(`Failed to parse stored value for "${key}":`, error);
-                return fallback;
-            }
-        };
-
-        const persistStoredJSON = (key, value) => {
-            if (!isBrowserEnvironment) return;
-            try {
-                if (value === null || value === undefined) {
-                    window.localStorage.removeItem(key);
-                } else {
-                    window.localStorage.setItem(key, JSON.stringify(value));
-                }
-            } catch (error) {
-                console.warn(`Failed to persist value for "${key}":`, error);
-            }
-        };
-
-        const escapeCSVValue = (value) => {
-            if (value === null || value === undefined) return '';
-            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
-            if (/[",]/.test(stringValue)) {
-                return '"' + stringValue.replace(/"/g, '""') + '"';
-            }
-            return stringValue;
-        };
-
-        const exportInventoryToCSV = (items = []) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
-            const rows = items.map(item => [
-                item.sku || '',
-                item.name || '',
-                item.brand || '',
-                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
-                item.qty === undefined || item.qty === null ? '' : item.qty,
-                item.price === undefined || item.price === null ? '' : item.price,
-                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
-            ]);
-
-            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        };
-
-        const formatDateForSearch = (timestamp) => {
-            if (!timestamp) return '';
-            try {
-                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
-                if (Number.isNaN(date.getTime())) return '';
-                const iso = date.toISOString().slice(0, 10);
-                const locale = date.toLocaleDateString();
-                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                return `${iso} ${locale} ${longLocale}`.toLowerCase();
-            } catch (error) {
-                return '';
-            }
-        };
-
-        const normalizeTimestamp = (timestamp) => {
-            if (!timestamp) return null;
-            try {
-                if (typeof timestamp.toDate === 'function') {
-                    const date = timestamp.toDate();
-                    if (!Number.isNaN(date.getTime())) {
-                        return date;
-                    }
-                }
-                const date = new Date(timestamp);
-                return Number.isNaN(date.getTime()) ? null : date;
-            } catch (error) {
-                return null;
-            }
-        };
-
-        const STORAGE_KEYS = {
-            manualReceiptDraft: 'wm_manual_receipt_draft',
-            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            'pc': 'PC/s',
-            'pcs': 'PC/s',
-            'pc/s': 'PC/s',
-            'roll': 'Roll/s',
-            'rolls': 'Roll/s',
-            'roll/s': 'Roll/s',
-            'meter': 'Meter/s',
-            'meters': 'Meter/s',
-            'meter/s': 'Meter/s',
-            'set': 'Set/s',
-            'sets': 'Set/s',
-            'set/s': 'Set/s',
-            'assy': 'Assy',
-            'box': 'Box',
-            'length': 'Length'
-        };
-
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        const normalizeUnitValue = (value) => {
-            if (typeof value !== 'string') return '';
-            const trimmed = value.trim();
-            if (!trimmed) return '';
-            const key = trimmed.toLowerCase();
-            if (UNIT_DISPLAY_OVERRIDES[key]) {
-                return UNIT_DISPLAY_OVERRIDES[key];
-            }
-            if (trimmed.includes('/')) {
-                return trimmed
-                    .split('/')
-                    .map((segment, index) => index === 0
-                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
-                        : segment.toLowerCase())
-                    .join('/');
-            }
-            if (trimmed.length <= 4) {
-                return trimmed.toUpperCase();
-            }
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-        };
-
-        const uniqueUnits = (list) => {
-            const seen = new Set();
-            const ordered = [];
-            list.forEach(unit => {
-                const normalized = normalizeUnitValue(unit);
-                if (!normalized) return;
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) return;
-                seen.add(key);
-                ordered.push(normalized);
-            });
-            return ordered;
-        };
-
-        const ensurePreferredUnitList = (units = []) => {
-            const source = Array.isArray(units) ? units : [];
-            const normalizedSource = source.map(normalizeUnitValue);
-            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
-        };
-
-        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
-
-        const getPreferredUnit = (units) => {
-            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
-            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
-        };
-
-        const resolveUnitOptions = (item = {}) => {
-            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-            for (const list of candidateLists) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = ensurePreferredUnitList(list);
-                    if (cleaned.length > 0) {
-                        return cleaned;
-                    }
-                }
-            }
-            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
-            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
-            if (fallbackUnits.length > 0) {
-                return fallbackUnits;
-            }
-            return ensurePreferredUnitList();
-        };
-
-        const getPrimaryIssuingUnit = (item = {}) => {
-            if (typeof item.unit === 'string' && item.unit.trim()) {
-                return normalizeUnitValue(item.unit);
-            }
-            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return normalizeUnitValue(item.issuingUnit);
-            }
-            const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'PC/s';
-        };
-
-        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-        const loadStoredJSON = (key, fallback = null) => {
-            if (!isBrowserEnvironment) return fallback;
-            try {
-                const rawValue = window.localStorage.getItem(key);
-                return rawValue ? JSON.parse(rawValue) : fallback;
-            } catch (error) {
-                console.warn(`Failed to parse stored value for "${key}":`, error);
-                return fallback;
-            }
-        };
-
-        const persistStoredJSON = (key, value) => {
-            if (!isBrowserEnvironment) return;
-            try {
-                if (value === null || value === undefined) {
-                    window.localStorage.removeItem(key);
-                } else {
-                    window.localStorage.setItem(key, JSON.stringify(value));
-                }
-            } catch (error) {
-                console.warn(`Failed to persist value for "${key}":`, error);
-            }
-        };
-
-        const escapeCSVValue = (value) => {
-            if (value === null || value === undefined) return '';
-            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
-            if (/[",]/.test(stringValue)) {
-                return '"' + stringValue.replace(/"/g, '""') + '"';
-            }
-            return stringValue;
-        };
-
-        const exportInventoryToCSV = (items = []) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
-            const rows = items.map(item => [
-                item.sku || '',
-                item.name || '',
-                item.brand || '',
-                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
-                item.qty === undefined || item.qty === null ? '' : item.qty,
-                item.price === undefined || item.price === null ? '' : item.price,
-                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
-            ]);
-
-            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        };
-
-        const formatDateForSearch = (timestamp) => {
-            if (!timestamp) return '';
-            try {
-                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
-                if (Number.isNaN(date.getTime())) return '';
-                const iso = date.toISOString().slice(0, 10);
-                const locale = date.toLocaleDateString();
-                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                return `${iso} ${locale} ${longLocale}`.toLowerCase();
-            } catch (error) {
-                return '';
-            }
-        };
-
-        const normalizeTimestamp = (timestamp) => {
-            if (!timestamp) return null;
-            try {
-                if (typeof timestamp.toDate === 'function') {
-                    const date = timestamp.toDate();
-                    if (!Number.isNaN(date.getTime())) {
-                        return date;
-                    }
-                }
-                const date = new Date(timestamp);
-                return Number.isNaN(date.getTime()) ? null : date;
-            } catch (error) {
-                return null;
-            }
-        };
-
-        const STORAGE_KEYS = {
-            manualReceiptDraft: 'wm_manual_receipt_draft',
-            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            'pc': 'PC/s',
-            'pcs': 'PC/s',
-            'pc/s': 'PC/s',
-            'roll': 'Roll/s',
-            'rolls': 'Roll/s',
-            'roll/s': 'Roll/s',
-            'meter': 'Meter/s',
-            'meters': 'Meter/s',
-            'meter/s': 'Meter/s',
-            'set': 'Set/s',
-            'sets': 'Set/s',
-            'set/s': 'Set/s',
-            'assy': 'Assy',
-            'box': 'Box',
-            'length': 'Length'
-        };
-
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        const normalizeUnitValue = (value) => {
-            if (typeof value !== 'string') return '';
-            const trimmed = value.trim();
-            if (!trimmed) return '';
-            const key = trimmed.toLowerCase();
-            if (UNIT_DISPLAY_OVERRIDES[key]) {
-                return UNIT_DISPLAY_OVERRIDES[key];
-            }
-            if (trimmed.includes('/')) {
-                return trimmed
-                    .split('/')
-                    .map((segment, index) => index === 0
-                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
-                        : segment.toLowerCase())
-                    .join('/');
-            }
-            if (trimmed.length <= 4) {
-                return trimmed.toUpperCase();
-            }
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-        };
-
-        const uniqueUnits = (list) => {
-            const seen = new Set();
-            const ordered = [];
-            list.forEach(unit => {
-                const normalized = normalizeUnitValue(unit);
-                if (!normalized) return;
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) return;
-                seen.add(key);
-                ordered.push(normalized);
-            });
-            return ordered;
-        };
-
-        const ensurePreferredUnitList = (units = []) => {
-            const source = Array.isArray(units) ? units : [];
-            const normalizedSource = source.map(normalizeUnitValue);
-            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
-        };
-
-        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
-
-        const getPreferredUnit = (units) => {
-            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
-            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
-        };
-
-        const resolveUnitOptions = (item = {}) => {
-            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
-            for (const list of candidateLists) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = ensurePreferredUnitList(list);
-                    if (cleaned.length > 0) {
-                        return cleaned;
-                    }
-                }
-            }
-            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
-            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
-            if (fallbackUnits.length > 0) {
-                return fallbackUnits;
-            }
-            return ensurePreferredUnitList();
-        };
-
-        const getPrimaryIssuingUnit = (item = {}) => {
-            if (typeof item.unit === 'string' && item.unit.trim()) {
-                return normalizeUnitValue(item.unit);
-            }
-            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return normalizeUnitValue(item.issuingUnit);
-            }
-            const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'PC/s';
-        };
-
         const UNIT_DISPLAY_OVERRIDES = {
             'pc': 'PC/s',
             'pcs': 'PC/s',
@@ -1080,19 +308,9 @@
                 <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
                     <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
-                        <div className="flex flex-wrap gap-2 items-center justify-end w-full sm:w-auto">
-                            <div className="relative w-full sm:w-64">
-                                <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => exportInventoryToCSV(filteredInventory)}
-                                disabled={filteredInventory.length === 0}
-                                className="px-4 py-1.5 text-sm font-semibold rounded-full border border-gray-200 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                ⬇️ Export CSV
-                            </button>
+                        <div className="relative w-full sm:w-64">
+                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
@@ -1152,7 +370,7 @@
             useEffect(() => {
                 if (!db || !appId) return;
                 const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
-                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))),
+                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
                     (error) => console.error("Error fetching logs:", error));
                 return () => unsub();
             }, [appId]);
@@ -1173,369 +391,6 @@
                         </ul>
                     ) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}
                 </div>
-            );
-        };
-
-        const ReportsModal = ({ receipts = [], inventory = [], sites = [], onClose }) => {
-            const [range, setRange] = useState('30');
-            const [originFilter, setOriginFilter] = useState('all');
-            const [siteFilter, setSiteFilter] = useState('all');
-
-            const rangeOptions = [
-                { value: '7', label: 'Last 7 days' },
-                { value: '30', label: 'Last 30 days' },
-                { value: '90', label: 'Last 90 days' },
-                { value: '365', label: 'Last 12 months' },
-                { value: 'all', label: 'All time' },
-            ];
-
-            const originOptions = [
-                { value: 'all', label: 'All receipts' },
-                { value: 'inventory', label: 'Inventory receipts' },
-                { value: 'manual', label: 'Manual receipts' },
-            ];
-
-            const siteLookup = useMemo(() => {
-                const map = new Map();
-                sites.forEach(site => {
-                    if (site?.id) {
-                        map.set(site.id, site.name || site.siteName || 'Unassigned');
-                    }
-                });
-                return map;
-            }, [sites]);
-
-            const siteOptions = useMemo(() => {
-                const uniqueSites = new Set();
-                receipts.forEach(receipt => {
-                    const siteName = receipt.siteName || siteLookup.get(receipt.siteId) || 'Unassigned';
-                    uniqueSites.add(siteName);
-                });
-                return Array.from(uniqueSites).sort((a, b) => a.localeCompare(b));
-            }, [receipts, siteLookup]);
-
-            const inventoryIndex = useMemo(() => {
-                const map = new Map();
-                inventory.forEach(item => {
-                    if (item?.id) {
-                        map.set(`id:${item.id}`, item);
-                    }
-                    if (item?.sku) {
-                        map.set(`sku:${String(item.sku).toLowerCase()}`, item);
-                    }
-                    if (item?.name) {
-                        map.set(`name:${String(item.name).toLowerCase()}`, item);
-                    }
-                });
-                return map;
-            }, [inventory]);
-
-            const filteredReceipts = useMemo(() => {
-                const now = new Date();
-                const rangeDays = range === 'all' ? null : Number(range);
-                const startDate = rangeDays ? new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000) : null;
-
-                return receipts.filter(receipt => {
-                    const createdAt = normalizeTimestamp(receipt.createdAt);
-                    if (startDate && (!createdAt || createdAt < startDate)) {
-                        return false;
-                    }
-
-                    const status = (receipt.status || '').toLowerCase();
-                    if (status === 'voided') {
-                        return false;
-                    }
-
-                    const inferredOrigin = receipt.origin || ((receipt.items || []).some(item => !item?.isManual) ? 'inventory' : 'manual');
-                    if (originFilter !== 'all' && inferredOrigin !== originFilter) {
-                        return false;
-                    }
-
-                    const siteName = receipt.siteName || siteLookup.get(receipt.siteId) || 'Unassigned';
-                    if (siteFilter !== 'all' && siteName !== siteFilter) {
-                        return false;
-                    }
-
-                    return true;
-                });
-            }, [receipts, range, originFilter, siteFilter, siteLookup]);
-
-            const reportData = useMemo(() => {
-                let totalReceipts = 0;
-                let totalItems = 0;
-                let totalValue = 0;
-                const usageMap = new Map();
-                const siteSummaryMap = new Map();
-                const timelineMap = new Map();
-
-                filteredReceipts.forEach(receipt => {
-                    const createdAt = normalizeTimestamp(receipt.createdAt);
-                    const siteName = receipt.siteName || siteLookup.get(receipt.siteId) || 'Unassigned';
-                    const items = Array.isArray(receipt.items) ? receipt.items : [];
-                    let receiptQuantity = 0;
-                    let receiptValue = 0;
-
-                    items.forEach(item => {
-                        const qtyRaw = item?.dispatchQty ?? item?.requestedQty ?? item?.quantity ?? 0;
-                        const qty = Number(qtyRaw);
-                        if (!Number.isFinite(qty) || qty <= 0) {
-                            return;
-                        }
-                        const priceRaw = item?.price ?? 0;
-                        const price = Number(priceRaw);
-                        const safePrice = Number.isFinite(price) ? price : 0;
-                        const lineValue = qty * safePrice;
-
-                        receiptQuantity += qty;
-                        receiptValue += lineValue;
-                        totalItems += qty;
-                        totalValue += lineValue;
-
-                        const unit = normalizeUnitValue(item?.unit || item?.issuingUnit || 'PC/s') || 'PC/s';
-                        const inventoryMatch = (item?.id && inventoryIndex.get(`id:${item.id}`))
-                            || (item?.sku && inventoryIndex.get(`sku:${String(item.sku).toLowerCase()}`))
-                            || (item?.name && inventoryIndex.get(`name:${String(item.name).toLowerCase()}`))
-                            || null;
-                        const displayName = (item?.name || inventoryMatch?.name || 'Unnamed Item').toUpperCase();
-                        const sku = item?.sku || inventoryMatch?.sku || '';
-                        const usageKey = `${item?.id || sku || displayName}::${unit.toLowerCase()}`;
-
-                        if (!usageMap.has(usageKey)) {
-                            usageMap.set(usageKey, {
-                                key: usageKey,
-                                itemId: inventoryMatch?.id || item?.id || null,
-                                name: displayName,
-                                sku,
-                                unit,
-                                totalQty: 0,
-                                occurrences: 0,
-                                totalValue: 0,
-                                lastUsed: createdAt || null,
-                            });
-                        }
-
-                        const usageEntry = usageMap.get(usageKey);
-                        usageEntry.totalQty += qty;
-                        usageEntry.totalValue += lineValue;
-                        usageEntry.occurrences += 1;
-                        if (createdAt && (!usageEntry.lastUsed || createdAt > usageEntry.lastUsed)) {
-                            usageEntry.lastUsed = createdAt;
-                        }
-                    });
-
-                    totalReceipts += 1;
-
-                    const siteEntry = siteSummaryMap.get(siteName) || { siteName, count: 0, quantity: 0, value: 0 };
-                    siteEntry.count += 1;
-                    siteEntry.quantity += receiptQuantity;
-                    siteEntry.value += receiptValue;
-                    siteSummaryMap.set(siteName, siteEntry);
-
-                    const dateKey = createdAt ? createdAt.toISOString().slice(0, 10) : 'No date';
-                    const timelineEntry = timelineMap.get(dateKey) || { dateKey, date: createdAt || null, receipts: 0, quantity: 0, value: 0 };
-                    timelineEntry.receipts += 1;
-                    timelineEntry.quantity += receiptQuantity;
-                    timelineEntry.value += receiptValue;
-                    if (!timelineEntry.date && createdAt) {
-                        timelineEntry.date = createdAt;
-                    }
-                    timelineMap.set(dateKey, timelineEntry);
-                });
-
-                const usageList = Array.from(usageMap.values()).sort((a, b) => {
-                    if (b.totalQty === a.totalQty) {
-                        return a.name.localeCompare(b.name);
-                    }
-                    return b.totalQty - a.totalQty;
-                });
-
-                const siteSummary = Array.from(siteSummaryMap.values()).sort((a, b) => {
-                    if (b.value === a.value) {
-                        return b.quantity - a.quantity;
-                    }
-                    return b.value - a.value;
-                });
-
-                const timeline = Array.from(timelineMap.values()).sort((a, b) => {
-                    const aTime = a.date ? a.date.getTime() : 0;
-                    const bTime = b.date ? b.date.getTime() : 0;
-                    return bTime - aTime;
-                });
-
-                const averageItems = totalReceipts > 0 ? totalItems / totalReceipts : 0;
-                const averageValue = totalReceipts > 0 ? totalValue / totalReceipts : 0;
-
-                return {
-                    totalReceipts,
-                    totalItems,
-                    totalValue,
-                    averageItems,
-                    averageValue,
-                    usageList,
-                    siteSummary,
-                    timeline,
-                };
-            }, [filteredReceipts, inventoryIndex, siteLookup]);
-
-            const { totalReceipts, totalItems, totalValue, averageItems, averageValue, usageList, siteSummary, timeline } = reportData;
-            const topUsage = useMemo(() => usageList.slice(0, 10), [usageList]);
-            const maxUsageQty = useMemo(() => topUsage.reduce((max, item) => Math.max(max, item.totalQty), 0), [topUsage]);
-            const limitedTimeline = useMemo(() => timeline.slice(0, 12), [timeline]);
-            const rangeLabel = rangeOptions.find(option => option.value === range)?.label || 'Selected range';
-
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                            <div>
-                                <h2 className="text-2xl font-bold text-gray-800">Reports & Usage Analytics</h2>
-                                <p className="text-sm text-gray-500">Review delivery activity, top items, and site performance at a glance.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2 items-center">
-                                <select value={range} onChange={(e) => setRange(e.target.value)} className="px-3 py-2 border rounded-full text-sm">
-                                    {rangeOptions.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
-                                <select value={originFilter} onChange={(e) => setOriginFilter(e.target.value)} className="px-3 py-2 border rounded-full text-sm">
-                                    {originOptions.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
-                                <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className="px-3 py-2 border rounded-full text-sm">
-                                    <option value="all">All sites</option>
-                                    {siteOptions.map(siteName => (
-                                        <option key={siteName} value={siteName}>{siteName}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4">
-                                <p className="text-sm text-indigo-700 font-medium">Total Receipts</p>
-                                <p className="text-3xl font-bold text-indigo-900">{totalReceipts.toLocaleString()}</p>
-                                <p className="text-xs text-indigo-600 mt-1">{rangeLabel}</p>
-                            </div>
-                            <div className="bg-teal-50 border border-teal-100 rounded-2xl p-4">
-                                <p className="text-sm text-teal-700 font-medium">Items Dispatched</p>
-                                <p className="text-3xl font-bold text-teal-900">{totalItems.toLocaleString()}</p>
-                                <p className="text-xs text-teal-600 mt-1">Total quantity across receipts</p>
-                            </div>
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
-                                <p className="text-sm text-emerald-700 font-medium">Dispatched Value</p>
-                                <p className="text-3xl font-bold text-emerald-900">{formatCurrency(totalValue)}</p>
-                                <p className="text-xs text-emerald-600 mt-1">Based on item prices</p>
-                            </div>
-                            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
-                                <p className="text-sm text-gray-600 font-medium">Average per Receipt</p>
-                                <p className="text-lg font-semibold text-gray-800">{averageItems.toLocaleString(undefined, { maximumFractionDigits: 1 })} items</p>
-                                <p className="text-sm text-gray-500">{formatCurrency(averageValue)} value</p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="bg-white rounded-2xl shadow-lg p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-lg font-bold text-gray-800">Most Used Items</h3>
-                                    <span className="text-xs text-gray-500">Top {Math.min(topUsage.length, 10)} items</span>
-                                </div>
-                                {topUsage.length > 0 ? (
-                                    <div className="space-y-3">
-                                        {topUsage.map((item, index) => (
-                                            <div key={item.key} className="border border-gray-100 rounded-xl p-3">
-                                                <div className="flex justify-between items-start gap-4">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-gray-800">{index + 1}. {item.name}</p>
-                                                        <p className="text-xs text-gray-500">{item.sku ? `SKU: ${item.sku} • ` : ''}Unit: {item.unit}</p>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="text-lg font-bold text-gray-900">{item.totalQty.toLocaleString()} <span className="text-sm font-normal text-gray-500">{item.unit}</span></p>
-                                                        <p className="text-xs text-gray-400">Across {item.occurrences} receipt{item.occurrences === 1 ? '' : 's'}</p>
-                                                    </div>
-                                                </div>
-                                                {maxUsageQty > 0 && (
-                                                    <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                                        <div className="h-full bg-teal-500" style={{ width: `${Math.max(5, (item.totalQty / maxUsageQty) * 100)}%` }}></div>
-                                                    </div>
-                                                )}
-                                                <p className="mt-2 text-xs text-gray-400">Last used: {item.lastUsed ? item.lastUsed.toLocaleDateString() : 'N/A'}{item.totalValue ? ` • Value: ${formatCurrency(item.totalValue)}` : ''}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-gray-500">No receipts found for the selected filters.</p>
-                                )}
-                            </div>
-
-                            <div className="bg-white rounded-2xl shadow-lg p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-lg font-bold text-gray-800">Site Performance</h3>
-                                    <span className="text-xs text-gray-500">Sorted by value</span>
-                                </div>
-                                {siteSummary.length > 0 ? (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm">
-                                            <thead className="text-left text-gray-500 text-xs uppercase tracking-wide">
-                                                <tr>
-                                                    <th className="pb-2">Site</th>
-                                                    <th className="pb-2 text-right">Receipts</th>
-                                                    <th className="pb-2 text-right">Quantity</th>
-                                                    <th className="pb-2 text-right">Value</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-100">
-                                                {siteSummary.map(entry => (
-                                                    <tr key={entry.siteName}>
-                                                        <td className="py-2 pr-2 font-medium text-gray-700">{entry.siteName}</td>
-                                                        <td className="py-2 text-right text-gray-600">{entry.count.toLocaleString()}</td>
-                                                        <td className="py-2 text-right text-gray-600">{entry.quantity.toLocaleString()}</td>
-                                                        <td className="py-2 text-right text-gray-600">{formatCurrency(entry.value)}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-gray-500">No site activity for the selected filters.</p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-2xl shadow-lg p-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-bold text-gray-800">Dispatch Activity Timeline</h3>
-                                <span className="text-xs text-gray-500">Most recent {limitedTimeline.length} days</span>
-                            </div>
-                            {limitedTimeline.length > 0 ? (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="text-left text-gray-500 text-xs uppercase tracking-wide">
-                                            <tr>
-                                                <th className="pb-2">Date</th>
-                                                <th className="pb-2 text-right">Receipts</th>
-                                                <th className="pb-2 text-right">Quantity</th>
-                                                <th className="pb-2 text-right">Value</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {limitedTimeline.map(entry => (
-                                                <tr key={entry.dateKey}>
-                                                    <td className="py-2 pr-2 text-gray-700">{entry.date ? entry.date.toLocaleDateString() : entry.dateKey}</td>
-                                                    <td className="py-2 text-right text-gray-600">{entry.receipts.toLocaleString()}</td>
-                                                    <td className="py-2 text-right text-gray-600">{entry.quantity.toLocaleString()}</td>
-                                                    <td className="py-2 text-right text-gray-600">{formatCurrency(entry.value)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <p className="text-sm text-gray-500">No dispatch activity recorded for the selected range.</p>
-                            )}
-                        </div>
-                    </div>
-                </Modal>
             );
         };
 
@@ -2076,28 +931,16 @@
                 }
                 return [buildRow()];
             });
-            const draftSnapshotRef = useRef('null');
 
             useEffect(() => {
                 if (initialData) {
-                    const sanitizedItems = initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()];
                     setSiteId(initialData.siteId || '');
                     setCustomerName(initialData.customerName || '');
                     setAddress(initialData.address || '');
                     setPoNumber(initialData.poNumber || '');
                     setRemarks(initialData.remarks || '');
                     setShowPrice(initialData.showPrice ?? true);
-                    setItems(sanitizedItems);
-                    draftSnapshotRef.current = JSON.stringify({
-                        siteId: initialData.siteId || '',
-                        customerName: initialData.customerName || '',
-                        address: initialData.address || '',
-                        poNumber: initialData.poNumber || '',
-                        remarks: initialData.remarks || '',
-                        items: sanitizedItems,
-                        showPrice: initialData.showPrice ?? true,
-                        origin: 'manual'
-                    });
+                    setItems(initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()]);
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -2106,64 +949,8 @@
                     setRemarks('');
                     setShowPrice(true);
                     setItems([buildRow()]);
-                    draftSnapshotRef.current = 'null';
                 }
             }, [initialData, buildRow, normalizeManualItem]);
-
-            useEffect(() => {
-                const normalizedItems = items.map(normalizeManualItem);
-                const hasItemChanges = normalizedItems.some(item => {
-                    const hasName = item.name.trim().length > 0;
-                    const qtyChanged = Number(item.dispatchQty) !== 1 && Number(item.dispatchQty) > 0;
-                    const hasPrice = Number(item.price) > 0;
-                    return hasName || hasPrice || qtyChanged;
-                });
-                const hasContent = Boolean(
-                    siteId ||
-                    customerName ||
-                    address ||
-                    poNumber ||
-                    remarks ||
-                    hasItemChanges
-                );
-
-                if (!hasContent) {
-                    if (draftSnapshotRef.current !== 'null') {
-                        draftSnapshotRef.current = 'null';
-                        onDraftChange(null);
-                    }
-                    return;
-                }
-
-                const draftPayload = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: normalizedItems,
-                    showPrice,
-                    origin: 'manual'
-                };
-
-                const serialized = JSON.stringify(draftPayload);
-                if (draftSnapshotRef.current !== serialized) {
-                    draftSnapshotRef.current = serialized;
-                    onDraftChange(draftPayload);
-                }
-            }, [siteId, customerName, address, poNumber, remarks, items, showPrice, normalizeManualItem, onDraftChange]);
-
-            const handleReset = () => {
-                setSiteId('');
-                setCustomerName('');
-                setAddress('');
-                setPoNumber('');
-                setRemarks('');
-                setShowPrice(true);
-                setItems([buildRow()]);
-                draftSnapshotRef.current = 'null';
-                onDraftChange(null);
-            };
 
             const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
@@ -2217,7 +1004,6 @@
                     origin: 'manual'
                 };
 
-                draftSnapshotRef.current = JSON.stringify(receiptData);
                 onDraftChange(receiptData);
                 onFinalize(receiptData);
             };
@@ -2227,22 +1013,13 @@
                     <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleReset}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
-                                >
-                                    🗑️ Start New Draft
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleAddRow}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
-                                >
-                                    ➕ Add Manual Item
-                                </button>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={handleAddRow}
+                                className="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                            >
+                                ➕ Add Manual Item
+                            </button>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2352,31 +1129,16 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
             const [selectionState, setSelectionState] = useState({});
-            const draftSnapshotRef = useRef('null');
 
             useEffect(() => {
                 if (initialData) {
-                    const sanitizedItems = (initialData.items || []).map(item => ({
-                        ...item,
-                        unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
-                    }));
                     setSiteId(initialData.siteId || '');
                     setCustomerName(initialData.customerName || '');
                     setAddress(initialData.address || '');
                     setPoNumber(initialData.poNumber || '');
                     setRemarks(initialData.remarks || '');
-                    setCart(sanitizedItems);
+                    setCart(initialData.items || []);
                     setShowPrice(initialData.showPrice ?? true);
-                    draftSnapshotRef.current = JSON.stringify({
-                        siteId: initialData.siteId || '',
-                        customerName: initialData.customerName || '',
-                        address: initialData.address || '',
-                        poNumber: initialData.poNumber || '',
-                        remarks: initialData.remarks || '',
-                        items: sanitizedItems,
-                        showPrice: initialData.showPrice ?? true,
-                        origin: 'inventory'
-                    });
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -2385,64 +1147,9 @@
                     setRemarks('');
                     setCart([]);
                     setShowPrice(true);
-                    draftSnapshotRef.current = 'null';
                 }
                 setSelectionState({});
             }, [initialData]);
-
-            useEffect(() => {
-                const normalizedCart = cart.map(item => ({
-                    ...item,
-                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
-                }));
-
-                const hasContent = Boolean(
-                    siteId ||
-                    customerName ||
-                    address ||
-                    poNumber ||
-                    remarks ||
-                    normalizedCart.length > 0
-                );
-
-                if (!hasContent) {
-                    if (draftSnapshotRef.current !== 'null') {
-                        draftSnapshotRef.current = 'null';
-                        onDraftChange(null);
-                    }
-                    return;
-                }
-
-                const draftPayload = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: normalizedCart,
-                    showPrice,
-                    origin: 'inventory'
-                };
-
-                const serialized = JSON.stringify(draftPayload);
-                if (draftSnapshotRef.current !== serialized) {
-                    draftSnapshotRef.current = serialized;
-                    onDraftChange(draftPayload);
-                }
-            }, [siteId, customerName, address, poNumber, remarks, cart, showPrice, onDraftChange]);
-
-            const handleResetForm = () => {
-                setSiteId('');
-                setCustomerName('');
-                setAddress('');
-                setPoNumber('');
-                setRemarks('');
-                setCart([]);
-                setShowPrice(true);
-                setSelectionState({});
-                draftSnapshotRef.current = 'null';
-                onDraftChange(null);
-            };
 
             const filteredInventory = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
@@ -2529,7 +1236,6 @@
                 }));
 
                 const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
-                draftSnapshotRef.current = JSON.stringify({ ...receiptData, origin: 'inventory' });
                 onDraftChange(receiptData);
                 onFinalize(receiptData);
             }
@@ -2539,18 +1245,9 @@
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleResetForm}
-                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
-                                >
-                                    🔄 Reset Form
-                                </button>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
                             </div>
-                        </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
                                      <option value="">-- Select Site --</option>
@@ -2675,14 +1372,7 @@
                 return baseDocs.filter(doc => {
                     const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
                     const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
-                    const siteName = (doc.siteName || '').toLowerCase();
-                    const dateTokens = formatDateForSearch(doc.createdAt);
-                    return (
-                        number.includes(term) ||
-                        identifier.includes(term) ||
-                        siteName.includes(term) ||
-                        (dateTokens && dateTokens.includes(term))
-                    );
+                    return number.includes(term) || identifier.includes(term);
                 });
             }, [documents, searchTerm, type]);
 
@@ -2739,7 +1429,7 @@
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full px-3 py-2 border rounded-lg"
-                                        placeholder="Search by number, site, name, or date (e.g. 2024-03-18)"
+                                        placeholder="Search receipts by number or identifier..."
                                     />
                                 )}
                                 <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
@@ -3307,23 +1997,15 @@
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
             const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
-            const [receiptDraft, setReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.inventoryReceiptDraft));
-            const [manualReceiptDraft, setManualReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.manualReceiptDraft));
+            const [receiptDraft, setReceiptDraft] = useState(null);
+            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
-
+            
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             // --- Firebase Initialization and Auth Effect ---
-            useEffect(() => {
-                persistStoredJSON(STORAGE_KEYS.manualReceiptDraft, manualReceiptDraft);
-            }, [manualReceiptDraft]);
-
-            useEffect(() => {
-                persistStoredJSON(STORAGE_KEYS.inventoryReceiptDraft, receiptDraft);
-            }, [receiptDraft]);
-
             useEffect(() => {
                 try {
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -3536,14 +2218,9 @@
                         transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
                         transaction.update(siteRef, { lastDrNumber: increment(1) });
                     });
-
+                    
                     setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
                     await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
-                    if (pendingReceiptOrigin === 'manual') {
-                        setManualReceiptDraft(null);
-                    } else {
-                        setReceiptDraft(null);
-                    }
                     return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
@@ -3751,7 +2428,7 @@
                 }
             };
 
-            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: true });
+            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
                 setPendingReceipt(null);
                 setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
@@ -3809,7 +2486,6 @@
                                              <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
                                              <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
                                              <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
-                                             <button onClick={() => openModal('reports')} className="bg-purple-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-purple-700 shadow-md text-sm">📊 Reports</button>
                                              <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
                                              <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
                                                  Restock Items
@@ -3860,7 +2536,7 @@
                             sites={sites}
                             unitOptions={settings.unitOptions}
                             onFinalize={handlePreviewAndFinalize}
-                            onClose={() => closeModal({ preserveManualDraft: true })}
+                            onClose={closeModal}
                             setNotification={setNotification}
                             initialData={manualReceiptDraft}
                             onDraftChange={setManualReceiptDraft}
@@ -3880,15 +2556,6 @@
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
-
-                    {modal === 'reports' && (
-                        <ReportsModal
-                            receipts={deliveryReceipts}
-                            inventory={inventory}
-                            sites={sites}
-                            onClose={closeModal}
-                        />
-                    )}
 
                     {modal === 'dr_manager' && (
                         <DocumentHistoryModal
