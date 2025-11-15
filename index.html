@@ -9,30 +9,90 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Use the latest modular Firebase SDK -->
+    <!-- Firebase Libraries -->
     <script type="module">
-        import { initializeApp as a } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; window.initializeApp = a;
-        import { getAuth as b, signInAnonymously as c, signInWithCustomToken as d, onAuthStateChanged as e } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        window.getAuth = b; window.signInAnonymously = c; window.signInWithCustomToken = d; window.onAuthStateChanged = e;
-        import { getFirestore as f, doc as g, getDoc as h, addDoc as i, setDoc as j, updateDoc as k, deleteDoc as l, onSnapshot as m, collection as n, query as o, where as p, orderBy as q, serverTimestamp as r, writeBatch as s, increment as t, runTransaction as u } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.getFirestore=f; window.doc=g; window.getDoc=h; window.addDoc=i; window.setDoc=j; window.updateDoc=k; window.deleteDoc=l; window.onSnapshot=m; window.collection=n; window.query=o; window.where=p; window.orderBy=q; window.serverTimestamp=r; window.writeBatch=s; window.increment=t; window.runTransaction=u;
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase modules to the global window object for Babel to access
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction
+        };
     </script>
 
 </head>
-<body>
+<body class="bg-gray-50">
     <div id="root"></div>
+    <!-- This div is used specifically for printing content -->
     <div id="print-area" class="hidden print:block"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
+        // Destructure Firebase functions from the global window object
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
 
-        // --- Firebase Globals (initialized in App component) ---
+        // --- Firebase Globals (will be initialized in the App component) ---
         let db, auth;
 
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
+        const DEFAULT_ISSUING_UNITS = ['Roll', 'Meter', 'Set', 'Pc', 'Assy'];
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                if (typeof unit !== 'string') return;
+                const trimmed = unit.trim();
+                if (!trimmed) return;
+                const key = trimmed.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(trimmed);
+            });
+            return ordered;
+        };
+
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackUnits = uniqueUnits([
+                ...DEFAULT_ISSUING_UNITS,
+                item.issuingUnit,
+                item.unit,
+                item.defaultUnit
+            ]);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return DEFAULT_ISSUING_UNITS;
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return item.unit.trim();
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return item.issuingUnit.trim();
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'Unit';
+        };
+
         // --- UI Components ---
+
+        // A simple spinner component for loading states
         const Spinner = ({ text = "Loading..." }) => (
             <div className="fixed inset-0 bg-gray-100 bg-opacity-75 flex flex-col justify-center items-center p-4 z-[999]">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -40,11 +100,29 @@
             </div>
         );
 
-        const Modal = ({ children, onClose, size = 'md' }) => {
+        // A generic modal component
+        const Modal = ({ children, onClose, size = 'md', zIndexClass = 'z-50' }) => {
             const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+            const overlayClasses = [
+                'fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4',
+                'transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden',
+                zIndexClass
+            ].join(' ');
+            const containerClasses = [
+                'bg-white rounded-2xl shadow-2xl w-full',
+                sizeClasses[size],
+                'p-6 relative transform transition-all duration-300 mb-8'
+            ].join(' ');
             return (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-start pt-12 sm:items-center p-4 transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden">
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 mb-8`}>
+                <div
+                    className={overlayClasses}
+                    role="presentation"
+                >
+                    <div
+                        className={containerClasses}
+                        role="dialog"
+                        aria-modal="true"
+                    >
                         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
@@ -54,6 +132,7 @@
             );
         };
         
+        // A modal for showing notifications (success, error, info)
         const NotificationModal = ({ message, type, onClose }) => {
              const colors = {
                  success: 'bg-green-100 border-green-500 text-green-700',
@@ -66,7 +145,7 @@
                  info: 'bg-blue-600 hover:bg-blue-700',
              }
              return (
-                 <Modal onClose={onClose} size="sm">
+                 <Modal onClose={onClose} size="sm" zIndexClass="z-[200]">
                      <div className="text-center">
                          <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
                              <p className="font-medium">{message}</p>
@@ -77,6 +156,7 @@
              );
         };
 
+        // A modal for confirming actions (e.g., deletion)
         const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel', confirmClass = 'bg-red-600 hover:bg-red-700' }) => {
             if (!isOpen) return null;
             return (
@@ -99,6 +179,7 @@
         
         // --- Widget & Form Components ---
 
+        // Dashboard widget showing key inventory stats
         const StatsWidget = ({ inventory }) => {
             const totalItems = inventory.length;
             const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
@@ -126,6 +207,7 @@
             );
         };
 
+        // Dashboard widget showing items that are low in stock
         const LowStockWidget = ({ inventory, settings, onRestock, setNotification }) => {
             const lowStockItems = useMemo(() => {
                 return inventory.filter(item => {
@@ -166,6 +248,7 @@
             );
         };
 
+        // Main table displaying all inventory items
         const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
             const filteredInventory = useMemo(() => inventory.filter(item => 
                 (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
@@ -183,36 +266,39 @@
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="overflow-x-auto -mx-6">
-                            <table className="w-full text-left table-auto">
-                                <thead>
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) <= reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-orange-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+                        <div className="h-[60vh] border rounded-lg overflow-hidden">
+                            <div className="h-full overflow-auto">
+                                <table className="w-full min-w-[720px] text-left table-auto">
+                                    <thead className="sticky top-0 bg-white z-10">
+                                        <tr className="border-b-2 border-gray-100">
+                                            <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Unit</th>
+                                            {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                            const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                            const isLowStock = Number(item.qty) <= reorder;
+                                            const primaryUnit = getPrimaryIssuingUnit(item);
+                                            return (
+                                                <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
+                                                    <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+                                                    <td className="p-4">
+                                                        <p className="font-medium text-gray-800">{item.name}</p>
+                                                        <p className="text-sm text-gray-500">{item.brand}</p>
+                                                        <p className={`text-xs font-semibold mt-1 ${isLowStock ? 'text-orange-500' : 'text-gray-500'}`}>Stock: {item.qty}</p>
+                                                    </td>
+                                                    <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                    <td className="p-4 text-gray-600">{primaryUnit}</td>
+                                                    {isAdminMode && (
+                                                        <td className="p-4 text-right">
+                                                            <div className="flex justify-end gap-1">
+                                                                <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+                                                                <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+                                                                <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
                                                         </div>
                                                     </td>
                                                 )}
@@ -221,14 +307,16 @@
                                     }) : (
                                         <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
                                     )}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
             );
         };
         
+        // Widget to display recent activity logs
         const LogsWidget = ({ isLoading, appId }) => {
             const [logs, setLogs] = useState([]);
             useEffect(() => {
@@ -258,20 +346,80 @@
             );
         };
 
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
+        // Form for adding or editing an inventory item
+        const ItemForm = ({ currentItem, onSave, onClose, setNotification, unitOptions = GLOBAL_UNIT_OPTIONS }) => {
+            const sanitizedUnitOptions = useMemo(() => uniqueUnits([...(unitOptions || []), 'PC/s']), [unitOptions]);
+            const preferredUnit = getPreferredUnit(sanitizedUnitOptions);
+
+            const defaultItemState = () => ({
+                name: '',
+                brand: '',
+                qty: '0',
+                location: '',
+                sku: '',
+                price: '0.00',
+                reorderLevel: '10',
+                unit: preferredUnit,
+                issuingUnit: preferredUnit,
+                issuingUnits: [preferredUnit]
+            });
+
+            const [item, setItem] = useState(defaultItemState);
             const [isSaving, setIsSaving] = useState(false);
+            const [isCustomUnit, setIsCustomUnit] = useState(false);
 
             useEffect(() => {
                 if (currentItem) {
-                    setItem(currentItem);
+                    const existingUnit = currentItem.unit || currentItem.issuingUnit || preferredUnit;
+                    const normalizedIssuingUnits = Array.isArray(currentItem.issuingUnits) && currentItem.issuingUnits.length > 0
+                        ? uniqueUnits([existingUnit, ...currentItem.issuingUnits])
+                        : uniqueUnits([existingUnit]);
+                    setItem({
+                        ...currentItem,
+                        unit: existingUnit,
+                        issuingUnit: existingUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: String(currentItem.qty ?? 0),
+                        price: String(currentItem.price ?? 0),
+                        reorderLevel: String(currentItem.reorderLevel ?? 0)
+                    });
+                    setIsCustomUnit(!sanitizedUnitOptions.some(option => option.toLowerCase() === existingUnit.toLowerCase()));
                 } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+                    setItem({
+                        ...defaultItemState(),
+                        sku: `SKU-${Date.now()}`
+                    });
+                    setIsCustomUnit(false);
                 }
-            }, [currentItem]);
+            }, [currentItem, preferredUnit, sanitizedUnitOptions]);
 
-            const handleChange = (e) => setItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
-            
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                const uppercaseFields = ['sku', 'name', 'brand', 'location'];
+                setItem(prev => ({ ...prev, [name]: uppercaseFields.includes(name) ? value.toUpperCase() : value }));
+            };
+
+            const handleUnitSelect = (e) => {
+                const { value } = e.target;
+                if (value === '__custom__') {
+                    setIsCustomUnit(true);
+                    setItem(prev => ({ ...prev, unit: '', issuingUnit: '' }));
+                    return;
+                }
+                setIsCustomUnit(false);
+                setItem(prev => ({
+                    ...prev,
+                    unit: value,
+                    issuingUnit: value,
+                    issuingUnits: uniqueUnits([value, ...(prev.issuingUnits || [])])
+                }));
+            };
+
+            const handleCustomUnitChange = (e) => {
+                const value = e.target.value.toUpperCase();
+                setItem(prev => ({ ...prev, unit: value, issuingUnit: value }));
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!item.name || !item.sku) {
@@ -279,22 +427,65 @@
                     return;
                 }
                 setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
+                try {
+                    const rawUnit = item.unit && item.unit.trim() ? item.unit.trim() : 'PC/s';
+                    const unitKey = rawUnit.toLowerCase();
+                    const normalizedUnit = unitKey === 'pc/s'
+                        ? 'PC/s'
+                        : (UNIT_DISPLAY_OVERRIDES[unitKey] || (rawUnit.charAt(0).toUpperCase() + rawUnit.slice(1)));
+                    const issuingUnitsList = Array.isArray(item.issuingUnits) ? item.issuingUnits : [];
+                    const normalizedIssuingUnits = uniqueUnits([normalizedUnit, ...issuingUnitsList]);
+                    await onSave({
+                        ...item,
+                        unit: normalizedUnit,
+                        issuingUnit: normalizedUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: Number(item.qty || 0),
+                        price: parseFloat(item.price || 0),
+                        reorderLevel: Number(item.reorderLevel || 0)
+                    });
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
             return (
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
-                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg bg-gray-100" readOnly /></div>
-                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
+                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
                         <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Unit of Measure</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <select
+                                value={isCustomUnit ? '__custom__' : (item.unit || preferredUnit)}
+                                onChange={handleUnitSelect}
+                                className="w-full sm:w-1/2 px-3 py-2 border rounded-lg"
+                            >
+                                {sanitizedUnitOptions.map(option => (
+                                    <option key={option} value={option}>{option}</option>
+                                ))}
+                                <option value="__custom__">Custom...</option>
+                            </select>
+                            {isCustomUnit && (
+                                <input
+                                    type="text"
+                                    value={item.unit || ''}
+                                    onChange={handleCustomUnitChange}
+                                    className="w-full px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="Enter custom unit"
+                                />
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Default unit is PC/s. Use settings to manage the dropdown options or enter a custom value.</p>
                     </div>
                     { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
                     <div className="flex justify-end gap-4 pt-4">
@@ -308,6 +499,7 @@
             );
         };
         
+        // Modal for entering admin password
         const AdminLoginModal = ({ onLogin, onClose }) => {
             const [password, setPassword] = useState('');
             const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
@@ -325,6 +517,7 @@
             );
         };
         
+        // Form for adjusting the stock quantity of an item
         const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
             const [adjustment, setAdjustment] = useState(0);
             const [isSaving, setIsSaving] = useState(false);
@@ -340,109 +533,305 @@
             }
 
             return (
-                 <Modal onClose={onClose} size="md">
-                     <div className="space-y-4">
-                         <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
-                         <div>
-                             <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
-                             <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
-                         </div>
-                         <div>
-                            <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                            <input 
-                                 type="number" 
-                                 value={adjustment} 
-                                 onChange={(e) => setAdjustment(Number(e.target.value))} 
-                                 className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                                 autoFocus
-                             />
-                             <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
-                         </div>
-                         <div className="flex justify-end gap-4 pt-4">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
-                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                 {isSaving ? 'Applying...' : 'Apply Adjustment'}
-                             </button>
-                         </div>
-                     </div>
-                 </Modal>
+                <Modal onClose={onClose} size="md">
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
+                        <div>
+                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
+                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
+                        </div>
+                        <div>
+                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
+                           <input 
+                               type="number" 
+                               value={adjustment} 
+                               onChange={(e) => setAdjustment(Number(e.target.value))} 
+                               className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
+                               autoFocus
+                            />
+                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
             );
         };
         
+        // Form for changing application settings (admin pass, reorder level)
         const SettingsForm = ({ settings, onSave, onClose }) => {
-            const [localSettings, setLocalSettings] = useState(settings);
+            const [localSettings, setLocalSettings] = useState(() => ({
+                ...settings,
+                unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+            }));
             const [isSaving, setIsSaving] = useState(false);
+            const [unitDraft, setUnitDraft] = useState('');
+            const [editingIndex, setEditingIndex] = useState(null);
+
+            useEffect(() => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    ...settings,
+                    unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+                }));
+            }, [settings]);
+
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(localSettings.unitOptions), [localSettings.unitOptions]);
+
+            const formatUnitForStorage = (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) return '';
+                const normalizedKey = trimmed.toLowerCase();
+                const canonicalMap = {
+                    'pc/s': 'PC/s',
+                    pcs: 'PC/s',
+                    pc: 'PC/s',
+                    'roll/s': 'Roll/s',
+                    rolls: 'Roll/s',
+                    roll: 'Roll/s',
+                    'meter/s': 'Meter/s',
+                    meters: 'Meter/s',
+                    meter: 'Meter/s',
+                    'set/s': 'Set/s',
+                    sets: 'Set/s',
+                    set: 'Set/s'
+                };
+                if (canonicalMap[normalizedKey]) {
+                    return canonicalMap[normalizedKey];
+                }
+                if (normalizedKey === 'assy') return 'Assy';
+                if (normalizedKey === 'box') return 'Box';
+                if (normalizedKey === 'length') return 'Length';
+                if (trimmed.includes('/')) {
+                    return trimmed
+                        .split('/')
+                        .map((part, index) => index === 0
+                            ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+                            : part.toLowerCase())
+                        .join('/');
+                }
+                if (trimmed.length <= 4) {
+                    return trimmed.toUpperCase();
+                }
+                return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+            };
 
             const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-            const handleSave = async () => {
-                setIsSaving(true);
-                await onSave(localSettings);
-                setIsSaving(false);
-            };
-
-            return (
-                 <Modal onClose={onClose} size="lg">
-                     <div className="space-y-6">
-                         <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                         <div>
-                            <label className="block text-sm font-medium">Admin Password</label>
-                            <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                            <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
-                         </div>
-                          <div>
-                            <label className="block text-sm font-medium">Default Reorder Level</label>
-                            <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                            <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
-                         </div>
-                         <div className="flex justify-end gap-4 pt-4 border-t">
-                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                             <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                 {isSaving ? 'Saving...' : 'Save Settings'}
-                             </button>
-                         </div>
-                     </div>
-                 </Modal>
-            );
-        };
-
-        const SiteManagementForm = ({ sites, onAddSite, onClose, setNotification }) => {
-            const [newSite, setNewSite] = useState({ name: '', drPrefix: ''});
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleAdd = async (e) => {
+            const handleUnitSubmit = (e) => {
                 e.preventDefault();
-                if (!newSite.name || !newSite.drPrefix) {
-                    setNotification({type: 'error', message: "Site Name and DR Prefix are required."});
+                const formatted = formatUnitForStorage(unitDraft);
+                if (!formatted) {
                     return;
                 }
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? [...prev.unitOptions] : [];
+                    if (editingIndex !== null) {
+                        current[editingIndex] = formatted;
+                    } else if (!current.some(unit => unit.toLowerCase() === formatted.toLowerCase())) {
+                        current.push(formatted);
+                    }
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                setUnitDraft('');
+                setEditingIndex(null);
+            };
+
+            const handleEditUnit = (index) => {
+                setEditingIndex(index);
+                setUnitDraft(normalizedUnits[index] || '');
+            };
+
+            const handleDeleteUnit = (index) => {
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? prev.unitOptions.filter((_, idx) => idx !== index) : [];
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                if (editingIndex === index) {
+                    setEditingIndex(null);
+                    setUnitDraft('');
+                }
+            };
+
+            const handleCancelUnitEdit = () => {
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
+            const handleResetUnits = () => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    unitOptions: [...DEFAULT_ISSUING_UNITS]
+                }));
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
+            const handleSave = async () => {
                 setIsSaving(true);
-                await onAddSite(newSite);
-                setNewSite({ name: '', drPrefix: ''});
+                await onSave({
+                    ...localSettings,
+                    unitOptions: ensurePreferredUnitList(localSettings.unitOptions)
+                });
                 setIsSaving(false);
             };
 
             return (
                 <Modal onClose={onClose} size="lg">
                     <div className="space-y-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Admin Password</label>
+                                <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Default Reorder Level</label>
+                                <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                            </div>
+                        </div>
+                        <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                            <div className="flex items-center justify-between gap-2">
+                                <h3 className="font-bold text-gray-800">Units of Measure</h3>
+                                <button type="button" onClick={handleResetUnits} className="text-xs font-semibold text-indigo-600 hover:text-indigo-500">Reset to defaults</button>
+                            </div>
+                            <p className="text-xs text-gray-500">Customize the dropdown values used when selecting units. PC/s will always be available.</p>
+                            <form onSubmit={handleUnitSubmit} className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    type="text"
+                                    value={unitDraft}
+                                    onChange={(e) => setUnitDraft(e.target.value)}
+                                    className="flex-1 px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="e.g., BOX"
+                                />
+                                <div className="flex gap-2">
+                                    {editingIndex !== null && (
+                                        <button type="button" onClick={handleCancelUnitEdit} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Cancel</button>
+                                    )}
+                                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">
+                                        {editingIndex !== null ? 'Save Unit' : 'Add Unit'}
+                                    </button>
+                                </div>
+                            </form>
+                            <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {normalizedUnits.map((unit, index) => (
+                                    <li key={unit} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2 text-sm">
+                                        <span className="font-medium text-gray-700">{unit}</span>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => handleEditUnit(index)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteUnit(index)}
+                                                className="text-xs text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline"
+                                                disabled={normalizedUnits.length <= 1}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                                {normalizedUnits.length === 0 && <li className="text-xs text-gray-500">No units configured.</li>}
+                            </ul>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4 border-t">
+                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
+                            <button type="button" onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                                {isSaving ? 'Saving...' : 'Save Settings'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Form for managing project sites
+        const SiteManagementForm = ({ sites, onSave, onClose, setNotification, onFinishSite, onReactivateSite }) => {
+            const [editingSite, setEditingSite] = useState(null);
+            const [formData, setFormData] = useState({ name: '', drPrefix: '' });
+            const [isSaving, setIsSaving] = useState(false);
+
+            useEffect(() => {
+                if (editingSite) {
+                    setFormData(editingSite);
+                } else {
+                    setFormData({ name: '', drPrefix: '' });
+                }
+            }, [editingSite]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!formData.name || !formData.drPrefix) {
+                    setNotification({ type: 'error', message: "Site Name and DR Prefix are required." });
+                    return;
+                }
+                setIsSaving(true);
+                await onSave(formData);
+                setIsSaving(false);
+                setEditingSite(null); // Reset form after saving
+            };
+
+            return (
+                <Modal onClose={onClose} size="lg">
+                    <div className="space-y-6">
                         <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
-                        <form onSubmit={handleAdd} className="flex gap-2 items-end p-4 border rounded-lg bg-gray-50">
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">New Site Name</label>
-                                <input type="text" value={newSite.name} onChange={e => setNewSite({...newSite, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
+                        <form onSubmit={handleSubmit} className="p-4 border rounded-lg bg-gray-50 space-y-4">
+                            <h3 className="font-bold">{editingSite ? 'Edit Site' : 'Add New Site'}</h3>
+                            <div className="flex gap-2 items-end">
+                                <div className="flex-grow">
+                                    <label className="text-sm font-medium">Site Name</label>
+                                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                </div>
+                                <div className="flex-grow">
+                                    <label className="text-sm font-medium">DR Prefix</label>
+                                    <input type="text" name="drPrefix" value={formData.drPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                </div>
                             </div>
-                            <div className="flex-grow">
-                                <label className="text-sm font-medium">DR Prefix (e.g., MNL)</label>
-                                <input type="text" value={newSite.drPrefix} onChange={e => setNewSite({...newSite, drPrefix: e.target.value.toUpperCase()})} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="flex justify-end gap-2">
+                                {editingSite && <button type="button" onClick={() => setEditingSite(null)} className="px-4 h-10 bg-gray-200 rounded-lg">Cancel</button>}
+                                <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">
+                                    {isSaving ? '...' : (editingSite ? 'Save Changes' : 'Add Site')}
+                                </button>
                             </div>
-                            <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">{isSaving ? '...' : 'Add'}</button>
                         </form>
                         <div className="border-t pt-4">
                             <h3 className="font-bold mb-2">Existing Sites</h3>
-                            <ul className="space-y-2 h-48 overflow-y-auto">
-                                {sites.length > 0 ? sites.map(s => <li key={s.id} className="p-3 bg-gray-100 rounded-lg flex justify-between"><span>{s.name}</span> <span className="font-mono text-gray-500">{s.drPrefix} / Last DR: {s.lastDrNumber}</span></li>) : <p className="text-gray-500">No sites configured.</p>}
+                            <ul className="space-y-2 h-48 overflow-y-auto pr-2">
+                                {sites.length > 0 ? sites.map(s => (
+                                    <li key={s.id} className={`p-3 rounded-lg flex justify-between items-center ${s.status === 'Finished' ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                                        <div>
+                                            <span className={`font-medium ${s.status === 'Finished' ? 'text-gray-500' : ''}`}>{s.name}</span>
+                                            <span className={`ml-4 font-mono ${s.status === 'Finished' ? 'text-gray-400' : 'text-gray-500'}`}>{s.drPrefix} / Last DR: {s.lastDrNumber || 0}</span>
+                                            {s.status === 'Finished' && <span className="ml-4 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">FINISHED</span>}
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <button onClick={() => setEditingSite(s)} disabled={s.status === 'Finished'} className="text-sm text-indigo-600 hover:underline disabled:text-gray-400 disabled:no-underline">Edit</button>
+                                            {s.status === 'Finished' ? (
+                                                <button onClick={() => onReactivateSite(s)} className="text-sm text-green-600 hover:underline">Re-activate</button>
+                                            ) : (
+                                                <button onClick={() => onFinishSite(s)} className="text-sm text-blue-600 hover:underline">Mark as Finished</button>
+                                            )}
+                                        </div>
+                                    </li>
+                                )) : <p className="text-gray-500">No sites configured.</p>}
                             </ul>
                         </div>
                         <div className="flex justify-end">
@@ -453,18 +842,66 @@
             );
         };
         
-        const DeliveryReceiptForm = ({ inventory, sites, onSave, onClose, setNotification, template, openPreview }) => {
-            const [siteId, setSiteId] = useState('');
-            const [customerName, setCustomerName] = useState('');
-            const [address, setAddress] = useState('');
-            const [remarks, setRemarks] = useState('');
-            const [cart, setCart] = useState([]);
+        // Form for creating a new delivery receipt
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [cart, setCart] = useState(initialData?.items || []);
             const [searchTerm, setSearchTerm] = useState('');
-            const [isSaving, setIsSaving] = useState(false);
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [selectionState, setSelectionState] = useState({});
 
-            const filteredInventory = useMemo(() => inventory.filter(i =>
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setCart(initialData.items || []);
+                    setShowPrice(initialData.showPrice ?? true);
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setCart([]);
+                    setShowPrice(true);
+                }
+                setSelectionState({});
+            }, [initialData]);
+
+            const filteredInventory = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return inventory;
+                return inventory.filter(i => {
+                    const name = (i.name || '').toLowerCase();
+                    const sku = (i.sku || '').toLowerCase();
+                    return name.includes(term) || sku.includes(term);
+                });
+            }, [inventory, searchTerm]);
+
+            const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const getSelectionForItem = (item) => {
+                const options = resolveUnitOptions(item);
+                const defaults = { qty: 1, unit: options[0] };
+                return { ...defaults, ...(selectionState[item.id] || {}) };
+            };
+
+            const updateSelection = (itemId, field, value) => {
+                setSelectionState(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        [field]: field === 'qty' ? value.replace(/[^0-9.]/g, '') : value
+                    }
+                }));
+            };
 
             const addToCart = (item) => {
                 setCart(prev => {
@@ -472,92 +909,141 @@
                         setNotification({ type: 'info', message: `${item.name} is already in the list.` });
                         return prev;
                     }
-                    return [...prev, { ...item, dispatchQty: 1 }];
+
+                    const selection = getSelectionForItem(item);
+                    const parsedQty = Math.max(0, Number(selection.qty || 0));
+                    if (!parsedQty) {
+                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero before adding.' });
+                        return prev;
+                    }
+
+                    const inventoryItem = inventory.find(i => i.id === item.id);
+                    if (inventoryItem && parsedQty > Number(inventoryItem.qty)) {
+                        setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                        return prev;
+                    }
+
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item) }];
                 });
             };
 
             const updateCartQty = (id, qty) => {
                 const inventoryItem = inventory.find(i => i.id === id);
                 const newQty = Math.max(0, Number(qty));
-                if (newQty > inventoryItem.qty) {
+                if (inventoryItem && newQty > Number(inventoryItem.qty)) {
                     setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
-                    setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
+                    setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: Number(inventoryItem.qty) } : i));
                     return;
                 }
-                setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+                setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+            };
+
+            const updateCartUnit = (id, unit) => {
+                setCart(prev => prev.map(i => i.id === id ? { ...i, unit } : i));
             };
 
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
-            const handleSave = async () => {
+            const handleFinalize = () => {
                 const finalCart = cart.filter(i => i.dispatchQty > 0);
                 if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
                 if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
-                
-                setIsSaving(true);
-                const receiptData = { siteId, customerName, address, remarks, items: finalCart };
-                await onSave(receiptData);
-                setIsSaving(false);
-            };
 
-            const handlePreview = () => {
-                const finalCart = cart.filter(i => i.dispatchQty > 0);
-                if(finalCart.length === 0){
-                    setNotification({type:'info', message:'Add items to the receipt to generate a preview.'});
-                    return;
-                }
-                const selectedSite = sites.find(s => s.id === siteId);
-                const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
-                const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
+                const normalizedCart = finalCart.map(item => ({
+                    ...item,
+                    unit: item.unit || getPrimaryIssuingUnit(item)
+                }));
 
-                const data = {
-                    drNumber: drNumberString,
-                    customerName,
-                    address,
-                    remarks,
-                    items: finalCart,
-                    siteName: selectedSite?.name || 'N/A',
-                    createdAt: { toDate: () => new Date() } // Mock server timestamp
-                };
-                openPreview(data);
-            };
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            }
 
             return (
                 <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                    <option value="">-- Select Site --</option>
-                                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                                <input type="text" placeholder="Customer Name" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                                <input type="text" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        handleOpenManualPreview();
+                                        manualSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }}
+                                    className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                                >
+                                    {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
+                                </button>
                             </div>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                 <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                     <option value="">-- Select Site --</option>
+                                     {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                 </select>
+                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                 <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleTextChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                 <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                             </div>
                             <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[40vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
-                                     <thead className="sticky top-0 bg-gray-50 z-10">
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
                                         <tr>
                                             <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
+                                            <th className="p-2">Issuing Unit</th>
+                                            <th className="p-2 w-48">Quantity</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {filteredInventory.map(item => {
+                                            const selection = getSelectionForItem(item);
+                                            const unitOptions = resolveUnitOptions(item);
+                                            const inCart = cart.some(c => c.id === item.id);
+                                            return (
+                                                <tr key={item.id} className="border-b">
+                                                    <td className="p-2">
+                                                        <div className="flex flex-col">
+                                                            <span>{item.name}</span>
+                                                            <span className="text-xs text-gray-400">({item.sku})</span>
+                                                            <span className="text-xs text-gray-500">Stock: {item.qty}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <select
+                                                            value={selection.unit}
+                                                            onChange={(e) => updateSelection(item.id, 'unit', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                            disabled={inCart}
+                                                        >
+                                                            {unitOptions.map(option => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={selection.qty}
+                                                                onChange={(e) => updateSelection(item.id, 'qty', e.target.value)}
+                                                                className="w-20 p-1 border rounded"
+                                                                disabled={inCart}
+                                                            />
+                                                            <button
+                                                                onClick={() => addToCart(item)}
+                                                                className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300"
+                                                                disabled={inCart}
+                                                            >
+                                                                {inCart ? 'Added' : 'Add'}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -565,26 +1051,35 @@
 
                         {/* Receipt Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
-                            <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
+                            <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
+                            <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
                                     <tbody>
                                         {cart.length > 0 ? cart.map(item => (
                                             <tr key={item.id} className="border-b">
                                                 <td className="p-2">{item.name}</td>
                                                 <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2">
+                                                    <select value={item.unit} onChange={(e) => updateCartUnit(item.id, e.target.value)} className="w-full px-2 py-1 border rounded-md">
+                                                        {resolveUnitOptions(item).map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
                                                 <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
                                             </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                        )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleTextChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <div className="space-y-2 text-sm p-2 bg-gray-100 rounded-md">
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show Price & Totals</label>
+                            </div>
                              <div className="flex justify-end gap-2 pt-4 border-t">
-                                 <button type="button" onClick={handlePreview} className="px-6 py-2 bg-gray-200 rounded-full">Preview</button>
-                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                     {isSaving ? 'Saving...' : `Save Receipt (${cart.filter(i => i.dispatchQty > 0).length})`}
+                                 <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                     Preview & Finalize
                                  </button>
                              </div>
                         </div>
@@ -593,13 +1088,30 @@
             );
         };
         
-        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type }) => {
+        // Modal for showing historical documents (DRs, Orders)
+        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [viewingReceipt, setViewingReceipt] = useState(null);
+
+            const filteredDocuments = useMemo(() => {
+                const baseDocs = documents || [];
+                if (type !== 'dr_manager') return baseDocs;
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return baseDocs;
+                return baseDocs.filter(doc => {
+                    const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
+                    const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
+                    return number.includes(term) || identifier.includes(term);
+                });
+            }, [documents, searchTerm, type]);
+
             const groupedDocuments = useMemo(() => {
-                if (!documents) return {};
+                const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
+                if (!source.length) return {};
                 if (type !== 'dr_manager') {
-                    return { 'All': documents };
+                    return { 'All': source };
                 }
-                return documents.reduce((acc, doc) => {
+                return source.reduce((acc, doc) => {
                     const key = doc.siteName || 'Uncategorized';
                     if (!acc[key]) {
                         acc[key] = [];
@@ -607,68 +1119,115 @@
                     acc[key].push(doc);
                     return acc;
                 }, {});
-            }, [documents, type]);
-            
+            }, [filteredDocuments, documents, type]);
+
+            const handleView = (doc) => {
+                if (type === 'dr_manager') {
+                    setViewingReceipt(doc);
+                } else if (openDetailView) {
+                    openDetailView(doc);
+                }
+            };
+
+            const hasDocuments = Object.keys(groupedDocuments).length > 0;
+
             return (
-                 <Modal onClose={onClose} size="7xl">
-                     <div className="space-y-4">
-                         <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-                         <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
-                             {Object.entries(groupedDocuments).map(([groupName, docs]) => (
-                                 <div key={groupName} className="mb-8">
-                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
-                                     <table className="w-full text-left">
-                                         <thead className="sticky top-0 bg-gray-50 z-10">
-                                            <tr>
-                                                <th className="p-3">Number</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Identifier</th>
-                                                <th className="p-3">Items</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                         <tbody>
-                                             {docs.map(doc => {
-                                                const getStatusClass = (status) => {
-                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                    return 'text-gray-500 bg-gray-100';
-                                                }
-                                                return (
-                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                     <td className="p-3">{doc.items.length}</td>
-                                                     <td className="p-3">
-                                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                            {doc.status || 'Active'}
-                                                        </span>
-                                                     </td>
-                                                     <td className="p-3 text-right">
-                                                        <div className="flex gap-2 justify-end">
-                                                            <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                            {actions.map(action => (
-                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                            ))}
-                                                        </div>
-                                                     </td>
-                                                 </tr>
-                                                )
-                                             })}
-                                         </tbody>
-                                     </table>
-                                 </div>
-                             ))}
-                         </div>
-                     </div>
-                 </Modal>
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                            {type === 'dr_manager' && viewingReceipt && (
+                                <button onClick={() => setViewingReceipt(null)} className="px-4 py-2 text-sm rounded-full bg-gray-200 hover:bg-gray-300 no-print">Back to List</button>
+                            )}
+                        </div>
+
+                        {type === 'dr_manager' && viewingReceipt ? (
+                            <div className="h-[60vh] overflow-y-auto border rounded-lg p-4 bg-white">
+                                <ReceiptDetailView
+                                    receipt={viewingReceipt}
+                                    template={template}
+                                    onClose={() => setViewingReceipt(null)}
+                                    renderInline={true}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                {type === 'dr_manager' && (
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                        placeholder="Search receipts by number or identifier..."
+                                    />
+                                )}
+                                <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
+                                    {hasDocuments ? (
+                                        Object.entries(groupedDocuments).map(([groupName, docs]) => (
+                                            <div key={groupName} className="mb-8">
+                                                {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                                <table className="w-full text-left">
+                                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                                        <tr>
+                                                            <th className="p-3">Number</th>
+                                                            <th className="p-3">Date</th>
+                                                            <th className="p-3">Identifier</th>
+                                                            <th className="p-3">Items</th>
+                                                            <th className="p-3">Status</th>
+                                                            <th className="p-3 text-right">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {docs.map(doc => {
+                                                            const getStatusClass = (status) => {
+                                                                if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                                if (status === 'Finished') return 'text-blue-500 bg-blue-100';
+                                                                if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                                if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                                return 'text-gray-500 bg-gray-100';
+                                                            }
+                                                            return (
+                                                             <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                                 <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                                 <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                                 <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                                 <td className="p-3">{doc.items.length}</td>
+                                                                 <td className="p-3">
+                                                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                                         {doc.status || 'Active'}
+                                                                     </span>
+                                                                 </td>
+                                                                 <td className="p-3 text-right">
+                                                                     <div className="flex gap-2 justify-end">
+                                                                         <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                                         {actions.map(action => (
+                                                                             <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                                         ))}
+                                                                     </div>
+                                                                 </td>
+                                                             </tr>
+                                                            )
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-gray-500 italic">{type === 'dr_manager' ? 'No receipts found.' : 'No records found.'}</div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </Modal>
             )
         };
         
-        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false }) => {
+        // Component to display a detailed, printable receipt view
+        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText, renderInline = false }) => {
+            const [isSaving, setIsSaving] = useState(false);
+            const [isSaved, setIsSaved] = useState(false);
+
             const printContent = () => {
                 const printArea = document.getElementById('print-area');
                 if (printArea) {
@@ -692,9 +1251,20 @@
                 signatory4: '',
                 ...template
             };
+
+            const showPrice = receipt.showPrice !== false;
             
+            const handleConfirm = async () => {
+                setIsSaving(true);
+                const success = await onConfirm();
+                setIsSaving(false);
+                if(success) {
+                    setIsSaved(true);
+                }
+            };
+
             const content = (
-                 <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
+                <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
                     {/* Header */}
                     <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
                         <div className="w-1/4">
@@ -729,6 +1299,12 @@
                                 <span className="font-bold">Date:</span>
                                 <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
                             </div>
+                            {receipt.poNumber &&
+                                <div className="grid grid-cols-2">
+                                    <span className="font-bold">P.O. No.:</span>
+                                    <span className="text-right">{receipt.poNumber}</span>
+                                </div>
+                            }
                             {receipt.drNumber && 
                                 <div className="grid grid-cols-2">
                                     <span className="font-bold">Site:</span>
@@ -745,27 +1321,29 @@
                                 <th className="p-2 border">Qty</th>
                                 <th className="p-2 border">Unit</th>
                                 <th className="p-2 border">Description</th>
-                                <th className="p-2 border text-right">Unit Price</th>
-                                <th className="p-2 border text-right">Total</th>
+                                {showPrice && <th className="p-2 border text-right">Unit Price</th>}
+                                {showPrice && <th className="p-2 border text-right">Total</th>}
                             </tr>
                         </thead>
                         <tbody>
                             {receipt.items.map(item => (
                                 <tr key={item.id} className="border-b">
                                     <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">pcs</td>
-                                    <td className="p-2 border">({item.sku}) {item.name}</td>
-                                    <td className="p-2 border text-right">{formatCurrency(item.price)}</td>
-                                    <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>
+                                    <td className="p-2 border">{item.unit || item.issuingUnit || 'PCS'}</td>
+                                    <td className="p-2 border">{item.name}</td>
+                                    {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
+                                    {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
                                 </tr>
                             ))}
                         </tbody>
-                        <tfoot className="font-bold">
-                            <tr>
-                                <td colSpan="4" className="p-2 border text-right">Total Value:</td>
-                                <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
-                            </tr>
-                        </tfoot>
+                        {showPrice && (
+                            <tfoot className="font-bold">
+                                <tr>
+                                    <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
+                                    <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                </tr>
+                            </tfoot>
+                        )}
                     </table>
 
                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
@@ -779,21 +1357,43 @@
                 </div>
             );
 
-
             if (isPreview) {
                  return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
+                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
                              <div className="p-8">
-                                {content}
+                                 {content}
                              </div>
                              <div className="flex justify-end gap-4 p-4 border-t no-print">
-                                 <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
-                                 <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                 {isSaved ? (
+                                     <>
+                                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                         <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
+                                     </>
+                                 ) : (
+                                     <>
+                                         {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
+                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
+                                         </button>}
+                                     </>
+                                 )}
                              </div>
+                         </div>
+                     </div>
+                 )
+            }
+
+            if (renderInline) {
+                return (
+                    <div className="space-y-4">
+                        {content}
+                        <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Back to List</button>
+                            <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
                         </div>
                     </div>
-                 )
+                );
             }
 
             return (
@@ -807,6 +1407,7 @@
             )
         };
 
+        // Form for non-admin users to request items
         const UserOrderForm = ({ inventory, onSave, onClose, setNotification, user }) => {
             const [orderCart, setOrderCart] = useState([]);
             const [remarks, setRemarks] = useState('');
@@ -816,6 +1417,8 @@
             const filteredInventory = useMemo(() => inventory.filter(i => 
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             ), [inventory, searchTerm]);
+            
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const addToCart = (item) => {
                 setOrderCart(prev => {
@@ -894,7 +1497,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
                              <div className="flex justify-end gap-4 pt-4 border-t">
                                  <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
                                  <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
@@ -907,11 +1510,17 @@
             );
         };
         
+        // Modal for editing the printable document template
         const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
             const [localTemplate, setLocalTemplate] = useState(template);
             const [isSaving, setIsSaving] = useState(false);
             
-            const handleChange = (e) => setLocalTemplate(prev => ({...prev, [e.target.name]: e.target.value }));
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                // Only uppercase text fields, not color pickers etc.
+                const isTextField = e.target.type === 'text' || e.target.type === 'email';
+                setLocalTemplate(prev => ({...prev, [name]: isTextField ? value.toUpperCase() : value }));
+            };
 
             const handleFileChange = (e) => {
                 const file = e.target.files[0];
@@ -942,27 +1551,27 @@
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Company Name</label>
-                                <input type="text" name="companyName" value={localTemplate.companyName} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="companyName" value={localTemplate.companyName} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
-                             <div>
+                            <div>
                                 <label className="block text-sm font-medium">Header Title</label>
-                                <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
                         
                         <div>
                             <label className="block text-sm font-medium">Company Address</label>
-                            <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                         </div>
 
-                         <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Company Contact #</label>
-                                <input type="text" name="companyContact" value={localTemplate.companyContact} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="text" name="companyContact" value={localTemplate.companyContact} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
-                             <div>
+                            <div>
                                 <label className="block text-sm font-medium">Company Email</label>
-                                <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
                         
@@ -978,10 +1587,10 @@
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
-                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" placeholder="Optional" /></div>
-                            <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" placeholder="Optional" /></div>
+                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                             <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                             <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
+                             <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
                         </div>
                         
                         <div className="flex justify-end gap-4 pt-4 border-t">
@@ -995,6 +1604,7 @@
             );
         }
 
+        // Form for restocking inventory
         const RestockForm = ({ inventory, initialCart, onSave, onClose, setNotification }) => {
             const [cart, setCart] = useState(initialCart || []);
             const [remarks, setRemarks] = useState('');
@@ -1027,15 +1637,15 @@
             };
 
             return (
-                 <Modal onClose={onClose} size="7xl">
+                <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                          {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
-                             <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
-                            <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
+                           <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[50vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
-                                     <thead className="sticky top-0 bg-gray-50 z-10">
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
                                         <tr>
                                             <th className="p-2">Name</th>
                                             <th className="p-2">Current Stock</th>
@@ -1061,8 +1671,8 @@
 
                          {/* Restock Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                            <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
-                             <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
+                           <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
+                            <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Add Qty</th><th className="p-2"></th></tr></thead>
                                     <tbody>
@@ -1076,13 +1686,13 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                             <div className="flex justify-end gap-4 pt-4 border-t">
-                                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
-                                     {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
-                                 </button>
-                             </div>
+                           <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <div className="flex justify-end gap-4 pt-4 border-t">
+                               <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
+                                    {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Modal>
@@ -1100,7 +1710,7 @@
             const [deliveryReceipts, setDeliveryReceipts] = useState([]);
             const [userOrders, setUserOrders] = useState([]);
             const [restockCart, setRestockCart] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0 });
+            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0, unitOptions: [...DEFAULT_ISSUING_UNITS] });
             const [drTemplate, setDrTemplate] = useState({ 
                 title: 'DELIVERY RECEIPT', 
                 logoUrl: '', 
@@ -1112,6 +1722,8 @@
             const [modal, setModal] = useState(null);
             const [notification, setNotification] = useState(null);
             const [currentItem, setCurrentItem] = useState(null); 
+            const [pendingReceipt, setPendingReceipt] = useState(null);
+            const [receiptDraft, setReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             
@@ -1121,23 +1733,21 @@
             // --- Firebase Initialization and Auth Effect ---
             useEffect(() => {
                 try {
-                    // This configuration includes a fallback for demo environments.
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
                         ? JSON.parse(__firebase_config)
                         : {
-                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw", // Public key for demo
+                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
                             authDomain: "dlv-warehouse-tracker.firebaseapp.com",
                             projectId: "dlv-warehouse-tracker",
                             storageBucket: "dlv-warehouse-tracker.appspot.com",
                             messagingSenderId: "267729758583",
-                            appId: "1:267729758583:web:f5f7ca26afc99c17819972"
-                        };
+                            appId: "1:267729758583:web:f5f7ca26afc99c17819972",
+                            measurementId: "G-1DH9GT5RXS"
+                          };
 
-                    if (!firebaseConfig?.apiKey) {
-                        setNotification({ type: 'error', message: 'Firebase configuration is invalid. App cannot start.' });
-                        setIsAuthReady(true);
-                        setIsLoading(false);
-                        return;
+                    if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
+                        setNotification({ type: 'error', message: 'Firebase configuration is missing or invalid. App cannot start.' });
+                        setIsAuthReady(true); setIsLoading(false); return;
                     }
                     
                     const app = initializeApp(firebaseConfig);
@@ -1146,14 +1756,10 @@
 
                     const unsubscribe = onAuthStateChanged(auth, (user) => {
                         if (user) {
-                            setUser(user);
-                            setIsAuthReady(true);
+                            setUser(user); setIsAuthReady(true);
                         } else {
                             const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                            const signInPromise = authToken 
-                                ? signInWithCustomToken(auth, authToken) 
-                                : signInAnonymously(auth);
-
+                            const signInPromise = authToken ? signInWithCustomToken(auth, authToken) : signInAnonymously(auth);
                             signInPromise.catch(e => {
                                 console.error("Sign-in failed", e);
                                 setNotification({type: 'error', message: `Authentication failed: ${e.message}`});
@@ -1165,8 +1771,7 @@
                 } catch (e) {
                     console.error("CRITICAL: Firebase initialization failed.", e);
                     setNotification({ type: 'error', message: `Failed to initialize backend. ${e.message}` });
-                    setIsAuthReady(true);
-                    setIsLoading(false);
+                    setIsAuthReady(true); setIsLoading(false);
                 }
             }, []);
 
@@ -1177,29 +1782,27 @@
                 setIsLoading(true);
                 const basePath = `artifacts/${appId}/public/data`;
                 
-                const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), 
-                    snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-                    err => console.error("Inventory snapshot error:", err));
-                    
-                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')),
-                    snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))),
-                    err => console.error("Sites snapshot error:", err));
-
-                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')),
-                    snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))),
-                    err => console.error("Receipts snapshot error:", err));
-
-                const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')),
-                    snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))),
-                    err => console.error("User Orders snapshot error:", err));
-                    
-                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), 
-                    (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } },
-                    err => console.error("Settings snapshot error:", err));
-                    
-                const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), 
-                    (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } },
-                    err => console.error("DR Template snapshot error:", err));
+                const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Inventory snapshot error:", err));
+                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err));
+                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err));
+                const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("User Orders snapshot error:", err));
+                const unsubSettings = onSnapshot(
+                    doc(db, `${basePath}/settings/general`),
+                    (d) => {
+                        if (d.exists()) {
+                            const data = d.data();
+                            const normalizedUnits = ensurePreferredUnitList(data.unitOptions);
+                            setSettings(prev => ({
+                                ...prev,
+                                ...data,
+                                unitOptions: normalizedUnits
+                            }));
+                            setGlobalUnitOptions(normalizedUnits);
+                        }
+                    },
+                    err => console.error("Settings snapshot error:", err)
+                );
+                const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } }, err => console.error("DR Template snapshot error:", err));
 
                 setIsLoading(false);
 
@@ -1211,26 +1814,52 @@
                  if(!db) return;
                  try {
                      await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
-                         timestamp: serverTimestamp(), 
-                         action, 
-                         details, 
-                         user: isAdminMode ? 'Admin' : 'User' 
+                         timestamp: serverTimestamp(), action, details, user: isAdminMode ? 'Admin' : 'User' 
                      });
-                 } catch (error) {
-                     console.error("Failed to log action:", error);
-                 }
+                 } catch (error) { console.error("Failed to log action:", error); }
              };
 
             // --- Business Logic Handlers ---
-            const handleAddSite = async (newSite) => {
+            const handleSaveSite = async (siteData) => {
                 const path = `artifacts/${appId}/public/data/sites`;
-                 try {
-                     await addDoc(collection(db, path), { ...newSite, lastDrNumber: 0 });
-                     setNotification({type: 'success', message: `Site "${newSite.name}" added.`});
-                     await logAction('Site Added', `New site created: ${newSite.name}`);
-                 } catch(e) {
-                     setNotification({type: 'error', message: `Failed to add site: ${e.message}`});
-                 }
+                try {
+                    if (siteData.id) { // Editing
+                        const { id, ...dataToSave } = siteData;
+                        await updateDoc(doc(db, path, id), dataToSave);
+                        setNotification({type: 'success', message: `Site "${siteData.name}" updated.`});
+                        await logAction('Site Updated', `Updated site: ${siteData.name}`);
+                    } else { // Adding
+                        await addDoc(collection(db, path), { ...siteData, lastDrNumber: 0, status: 'Active' });
+                        setNotification({type: 'success', message: `Site "${siteData.name}" added.`});
+                        await logAction('Site Added', `New site created: ${siteData.name}`);
+                    }
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to save site: ${e.message}`});
+                }
+            };
+
+            const handleFinishSite = async (site) => {
+                if (!site || site.status === 'Finished') return;
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
+                try {
+                    await updateDoc(siteRef, { status: 'Finished' });
+                    setNotification({type: 'success', message: `Site "${site.name}" marked as finished.`});
+                    await logAction('Site Finished', `Site ${site.name} was marked as finished.`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                }
+            };
+
+            const handleReactivateSite = async (site) => {
+                if (!site || site.status !== 'Finished') return;
+                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
+                try {
+                    await updateDoc(siteRef, { status: 'Active' });
+                    setNotification({type: 'success', message: `Site "${site.name}" has been re-activated.`});
+                    await logAction('Site Re-activated', `Site ${site.name} was marked as active.`);
+                } catch(e) {
+                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                }
             };
             
             const handleRestockItems = async (itemsToRestock, remarks) => {
@@ -1247,40 +1876,26 @@
                      setNotification({type: 'success', message: 'Inventory has been restocked.'});
                      setRestockCart([]);
                      closeModal();
-                 } catch(e) {
-                     console.error("Restock transaction failed:", e);
-                     setNotification({type: 'error', message: `Failed to restock items: ${e.message}`});
-                 }
+                 } catch(e) { console.error("Restock transaction failed:", e); setNotification({type: 'error', message: `Failed to restock items: ${e.message}`}); }
             }
 
             const handleSaveUserOrder = async (orderData) => {
                 const orderCollectionRef = collection(db, `artifacts/${appId}/public/data/userOrders`);
                 const settingsRef = doc(db, `artifacts/${appId}/public/data/settings/general`);
                 try {
-                     await runTransaction(db, async (transaction) => {
+                    await runTransaction(db, async (transaction) => {
                         const settingsDoc = await transaction.get(settingsRef);
                         const lastOrderNumber = settingsDoc.exists() ? settingsDoc.data().lastOrderNumber || 0 : 0;
                         const newOrderNumber = lastOrderNumber + 1;
                         const orderNumberString = `REQ-${String(newOrderNumber).padStart(5, '0')}`;
-                        
-                        transaction.set(doc(orderCollectionRef), {
-                            ...orderData,
-                            orderNumber: orderNumberString,
-                            status: 'Pending',
-                            createdAt: serverTimestamp()
-                        });
-                        
-                        // Use set with merge to create the doc if it doesn't exist.
+                        transaction.set(doc(orderCollectionRef), { ...orderData, orderNumber: orderNumberString, status: 'Pending', createdAt: serverTimestamp() });
                         transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
-                     });
-                     
-                     setNotification({type: 'success', message: 'Your order has been submitted!'});
-                     await logAction('Order Submitted', `By user ${orderData.requestedBy}`);
-                     closeModal();
-                } catch (e) {
-                    console.error("User order save failed:", e);
-                    setNotification({type: 'error', message: `Failed to submit order: ${e.message}`});
-                }
+                    });
+                    
+                    setNotification({type: 'success', message: 'Your order has been submitted!'});
+                    await logAction('Order Submitted', `By user ${orderData.requestedBy}`);
+                    closeModal();
+                } catch (e) { console.error("User order save failed:", e); setNotification({type: 'error', message: `Failed to submit order: ${e.message}`}); }
             };
             
             const handleUpdateOrderStatus = async (order) => {
@@ -1290,82 +1905,85 @@
                     await updateDoc(orderRef, { status: 'Completed' });
                     setNotification({type: 'success', message: `Order ${order.orderNumber} marked as completed.`});
                     await logAction('Order Completed', `Order ${order.orderNumber}`);
-                } catch(e) {
-                     setNotification({type: 'error', message: `Failed to update order: ${e.message}`});
-                }
+                } catch(e) { setNotification({type: 'error', message: `Failed to update order: ${e.message}`}); }
             };
             
             const handleSaveReceipt = async (receiptData) => {
                 const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
-
                 try {
+                    let finalDrNumber;
                     await runTransaction(db, async (transaction) => {
-                        // --- All READS first ---
                         const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const inventoryItems = (receiptData.items || []).filter(item => !item.isManual);
+                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        // --- Validation after all reads ---
                         for(let i = 0; i < itemDocs.length; i++) {
                             const invItemDoc = itemDocs[i];
-                            const requestedItem = receiptData.items[i];
-                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
+                            const requestedItem = inventoryItems[i];
+                            if (!invItemDoc.exists()) {
+                                throw new Error(`Inventory item "${requestedItem?.name || requestedItem?.id}" no longer exists.`);
+                            }
+                            if (invItemDoc.data().qty < requestedItem.dispatchQty) {
                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
                             }
                         }
-                        
-                        // --- All WRITES last ---
+
                         const newDrNumber = siteDoc.data().lastDrNumber + 1;
                         const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
+                        finalDrNumber = drNumberString;
 
-                        for (let i = 0; i < receiptData.items.length; i++) {
-                            const itemRef = itemRefs[i];
-                            const requestedItem = receiptData.items[i];
-                            transaction.update(itemRef, { qty: increment(-requestedItem.dispatchQty) });
+                        for (let i = 0; i < inventoryItems.length; i++) {
+                            transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
                         }
 
-                        transaction.set(doc(receiptsCollectionRef), {
-                            ...receiptData,
-                            drNumber: drNumberString,
-                            siteName: siteDoc.data().name,
-                            createdAt: serverTimestamp(),
-                            status: 'Active'
-                        });
-                        
+                        transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
                         transaction.update(siteRef, { lastDrNumber: increment(1) });
                     });
                     
-                    setNotification({ type: 'success', message: 'Delivery receipt saved successfully!'});
-                    await logAction('Receipt Created', `DR for site ${receiptData.siteId} saved.`);
-                    closeModal();
-
+                    setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
+                    await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
+                    return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
                     setNotification({ type: 'error', message: `Failed to save receipt: ${error.message}` });
+                    return false;
                 }
+            };
+            
+            const handlePreviewAndFinalize = (receiptData) => {
+                const { origin, ...payload } = receiptData || {};
+                const selectedSite = sites.find(s => s.id === payload.siteId);
+                const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
+                const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
+
+                const dataForPreview = {
+                    ...payload,
+                    drNumber: drNumberString,
+                    siteName: selectedSite?.name || 'N/A',
+                    createdAt: { toDate: () => new Date() } // Mock server timestamp
+                };
+                setPendingReceiptSource(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceipt(dataForPreview);
+                setModal('receipt_confirm_and_preview');
             };
 
             const handleVoidReceipt = async (receipt) => {
                 if (!receipt || receipt.status !== 'Active') {
-                    setReceiptToVoid(null);
-                    return;
+                    setReceiptToVoid(null); return;
                 }
                 try {
-                     await runTransaction(db, async (transaction) => {
-                        // --- All READS first ---
+                    await runTransaction(db, async (transaction) => {
                         const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
                         const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        // --- All WRITES last ---
                         for (let i = 0; i < receipt.items.length; i++) {
-                            const itemRef = itemRefs[i];
-                            const itemDoc = itemDocs[i];
-                            if (itemDoc.exists()) {
-                                transaction.update(itemRef, { qty: increment(receipt.items[i].dispatchQty) });
+                            if (itemDocs[i].exists()) {
+                                transaction.update(itemRefs[i], { qty: increment(receipt.items[i].dispatchQty) });
                             }
                         }
                         transaction.update(receiptRef, { status: 'Voided' });
@@ -1375,32 +1993,91 @@
                     setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
                     setReceiptToVoid(null);
                     closeModal(); 
+                } catch(e) { console.error("Void receipt transaction failed:", e); setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`}); setReceiptToVoid(null); }
+            };
+
+            const handleFinishReceipt = async (receipt) => {
+                if (!receipt || receipt.status !== 'Active') return;
+                const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
+                try {
+                    await updateDoc(receiptRef, { status: 'Finished' });
+                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.`});
+                    await logAction('Receipt Finished', `DR ${receipt.drNumber} was marked as finished.`);
                 } catch(e) {
-                    console.error("Void receipt transaction failed:", e);
-                    setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`});
-                    setReceiptToVoid(null);
+                    setNotification({type: 'error', message: `Failed to update receipt status: ${e.message}`});
                 }
             };
             
             // --- CRUD Handlers ---
+            const handleSaveItem = async (item) => {
+                const path = `artifacts/${appId}/public/data/inventory`;
+                try {
+                    // Normalize inputs for comparison
+                    const itemNameLower = item.name.trim().toLowerCase();
+                    const itemBrandLower = (item.brand || '').trim().toLowerCase();
+                    const itemSkuLower = item.sku.trim().toLowerCase();
+
+                    if (item.id) { // Editing existing item
+                        const conflictingSku = inventory.find(invItem =>
+                            invItem.id !== item.id && invItem.sku.trim().toLowerCase() === itemSkuLower
+                        );
+                        if (conflictingSku) {
+                            setNotification({ type: 'error', message: `SKU "${item.sku}" is already used by another item.` });
+                            return;
+                        }
+
+                        const conflictingNameAndBrand = inventory.find(invItem =>
+                            invItem.id !== item.id &&
+                            invItem.name.trim().toLowerCase() === itemNameLower &&
+                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
+                        );
+                        if (conflictingNameAndBrand) {
+                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
+                            return;
+                        }
+
+                        const { id, qty, ...itemData } = item;
+                        await updateDoc(doc(db, path, id), itemData);
+                        await logAction('Item Updated', `Updated details for "${item.name}" (SKU: ${item.sku})`);
+                        setNotification({ type: 'success', message: 'Item details successfully updated.' });
+                    } else { // Adding new item
+                        const conflictingSku = inventory.find(invItem => invItem.sku.trim().toLowerCase() === itemSkuLower);
+                        if (conflictingSku) {
+                            setNotification({ type: 'error', message: `SKU "${item.sku}" already exists. Please use a unique SKU.` });
+                            return;
+                        }
+
+                        const conflictingNameAndBrand = inventory.find(invItem =>
+                            invItem.name.trim().toLowerCase() === itemNameLower &&
+                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
+                        );
+                        if (conflictingNameAndBrand) {
+                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
+                            return;
+                        }
+                        
+                        await addDoc(collection(db, path), item);
+                        await logAction('Item Added', `Added new item "${item.name}" (SKU: ${item.sku}) with initial quantity ${item.qty}`);
+                        setNotification({ type: 'success', message: 'Item successfully added.' });
+                    }
+                    closeModal();
+                } catch (e) { console.error("Save item error:", e); setNotification({ type: 'error', message: `Failed to save item: ${e.message}` }); }
+            };
+
             const handleDeleteItem = async (id, name) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
                 try {
                     await deleteDoc(doc(db, path, id));
                     await logAction('Item Deleted', `Deleted item "${name}"`);
                     setNotification({type: 'success', message: 'Item successfully deleted.'});
-                } catch (e) {
-                    console.error("Delete error:", e);
-                    setNotification({type: 'error', message: `Failed to delete item: ${e.message}`});
-                }
+                } catch (e) { console.error("Delete error:", e); setNotification({type: 'error', message: `Failed to delete item: ${e.message}`}); }
             };
 
             const handleAdjustStock = async (item, adjustment) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
                 const newQty = item.qty + adjustment;
                 if (newQty < 0) {
-                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."});
-                     return;
+                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."}); return;
                 }
                 try {
                     const itemRef = doc(db, path, item.id);
@@ -1408,23 +2085,23 @@
                     await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
                     setNotification({type: 'success', message: 'Stock adjusted successfully!'});
                     closeModal();
-                } catch (e) {
-                    console.error("Stock adjustment error:", e);
-                    setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`});
-                }
+                } catch (e) { console.error("Stock adjustment error:", e); setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`}); }
             };
             
             const handleSaveSettings = async (newSettings) => {
-                const path = `artifacts/${appId}/public/data/settings/general`;
-                 try {
-                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), newSettings, { merge: true });
-                     await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                     setNotification({type: 'success', message: 'Settings saved successfully!'});
-                     closeModal();
-                 } catch (e) {
-                      console.error("Settings save error:", e);
-                     setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
-                 }
+                try {
+                    const sanitizedUnits = ensurePreferredUnitList(newSettings.unitOptions);
+                    const payload = { ...newSettings, unitOptions: sanitizedUnits };
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), payload, { merge: true });
+                    setSettings(prev => ({ ...prev, ...payload }));
+                    setGlobalUnitOptions(sanitizedUnits);
+                    await logAction('Settings Updated', 'Admin preferences were updated.');
+                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    closeModal();
+                } catch (e) {
+                    console.error("Settings save error:", e);
+                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                }
             };
             
             const handleSaveDrTemplate = async (newTemplate) => {
@@ -1433,19 +2110,16 @@
                     await logAction('DR Template Updated', 'Delivery receipt template was modified.');
                     setNotification({type: 'success', message: 'DR Template saved!'});
                     closeModal();
-                } catch (e) {
-                    console.error("DR Template save error:", e);
-                    setNotification({type: 'error', message: `Failed to save template: ${e.message}`});
-                }
+                } catch (e) { console.error("DR Template save error:", e); setNotification({type: 'error', message: `Failed to save template: ${e.message}`}); }
             };
             
             // --- Restock Cart ---
             const handleAddToRestockCart = (item) => {
                 setRestockCart(prev => {
                      if (prev.find(i => i.id === item.id)) {
-                        setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
-                        return prev;
-                    }
+                         setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
+                         return prev;
+                     }
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
@@ -1466,17 +2140,42 @@
                 setModal(type);
             };
 
-            const closeModal = () => {
+            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
+                setPendingReceipt(null);
+                if (!preserveReceiptDraft) {
+                    setReceiptDraft(null);
+                }
+            };
+
+            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
+            const returnToReceiptComposer = () => {
+                setPendingReceipt(null);
+                setModal('receipt');
             };
 
             // --- Render Logic ---
             if (!isAuthReady || isLoading) return <Spinner text={!isAuthReady ? "Initializing..." : "Loading data..."} />;
             
+            const drManagerActions = isAdminMode ? [
+                {
+                    label: "Mark as Finished",
+                    handler: handleFinishReceipt,
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-blue-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                },
+                {
+                    label: "Void",
+                    handler: (r) => setReceiptToVoid(r),
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                }
+            ] : [];
+
             return (
                 <>
-                    <div className="bg-gray-50 min-h-screen font-sans text-gray-800">
+                    <div className="min-h-screen font-sans text-gray-800">
                         <style>{`
                             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
                             body { font-family: 'Poppins', sans-serif; } 
@@ -1503,22 +2202,23 @@
                                      </button>
                                      
                                      {isAdminMode ? (
-                                        <>
-                                            <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
-                                            <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                            <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
-                                            <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
-                                            <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
-                                            <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
-                                            <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
-                                                Restock Items
-                                                {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
-                                            </button>
-                                        </>
+                                         <>
+                                             <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
+                                             <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
+                                             <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
+                                             <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
+                                             <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
+                                             <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
+                                                 Restock Items
+                                                 {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
+                                             </button>
+                                         </>
                                      ) : (
-                                        <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
+                                         <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
-
+                                     
+                                    <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
@@ -1547,23 +2247,53 @@
                     
                     <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt"/>
 
-                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
+                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} unitOptions={settings.unitOptions} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
-                    {modal === 'sites' && <SiteManagementForm sites={sites} onAddSite={handleAddSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onSave={handleSaveReceipt} onClose={closeModal} setNotification={setNotification} template={drTemplate} openPreview={(data) => openModal('dr_detail_preview', data)}/>}
+                    {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'receipt' && (
+                        <DeliveryReceiptForm
+                            inventory={inventory}
+                            sites={sites}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeReceiptComposer}
+                            setNotification={setNotification}
+                            initialData={receiptDraft}
+                            onDraftChange={setReceiptDraft}
+                        />
+                    )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
 
-                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={[{label: "Void", handler: (r) => setReceiptToVoid(r), disabled: (r) => r.status === 'Voided', className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} type="dr_manager"/>}
+                    {modal === 'dr_manager' && (
+                        <DocumentHistoryModal
+                            documents={deliveryReceipts}
+                            onClose={closeModal}
+                            openDetailView={(r) => openModal('dr_detail', r)}
+                            title="Delivery Receipt Manager"
+                            actions={drManagerActions}
+                            type="dr_manager"
+                            template={drTemplate}
+                        />
+                    )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
                     
-                    {modal === 'dr_detail_preview' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} isPreview={true} />}
+                    {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
+                        <ReceiptDetailView
+                            receipt={pendingReceipt}
+                            template={drTemplate}
+                            isPreview={true}
+                            onConfirm={() => handleSaveReceipt(pendingReceipt)}
+                            onCancel={returnToReceiptComposer}
+                            onDone={() => { setPendingReceipt(null); closeModal(); }}
+                            confirmText="Save & Prepare for Printing"
+                        />
+                    )}
 
                 </>
             );
