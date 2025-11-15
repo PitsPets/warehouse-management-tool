@@ -30,7 +30,7 @@
     <div id="print-area" class="hidden print:block"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
         // Destructure Firebase functions from the global window object
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
 
@@ -39,6 +39,183 @@
 
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
+
+        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
+        const loadStoredJSON = (key, fallback = null) => {
+            if (!isBrowserEnvironment) return fallback;
+            try {
+                const rawValue = window.localStorage.getItem(key);
+                return rawValue ? JSON.parse(rawValue) : fallback;
+            } catch (error) {
+                console.warn(`Failed to parse stored value for "${key}":`, error);
+                return fallback;
+            }
+        };
+
+        const persistStoredJSON = (key, value) => {
+            if (!isBrowserEnvironment) return;
+            try {
+                if (value === null || value === undefined) {
+                    window.localStorage.removeItem(key);
+                } else {
+                    window.localStorage.setItem(key, JSON.stringify(value));
+                }
+            } catch (error) {
+                console.warn(`Failed to persist value for "${key}":`, error);
+            }
+        };
+
+        const escapeCSVValue = (value) => {
+            if (value === null || value === undefined) return '';
+            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
+            if (/[",]/.test(stringValue)) {
+                return '"' + stringValue.replace(/"/g, '""') + '"';
+            }
+            return stringValue;
+        };
+
+        const exportInventoryToCSV = (items = []) => {
+            if (!Array.isArray(items) || items.length === 0) return;
+            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
+            const rows = items.map(item => [
+                item.sku || '',
+                item.name || '',
+                item.brand || '',
+                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
+                item.qty === undefined || item.qty === null ? '' : item.qty,
+                item.price === undefined || item.price === null ? '' : item.price,
+                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
+            ]);
+
+            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        };
+
+        const formatDateForSearch = (timestamp) => {
+            if (!timestamp) return '';
+            try {
+                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+                if (Number.isNaN(date.getTime())) return '';
+                const iso = date.toISOString().slice(0, 10);
+                const locale = date.toLocaleDateString();
+                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                return `${iso} ${locale} ${longLocale}`.toLowerCase();
+            } catch (error) {
+                return '';
+            }
+        };
+
+        const STORAGE_KEYS = {
+            manualReceiptDraft: 'wm_manual_receipt_draft',
+            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
+        };
+
+        const UNIT_DISPLAY_OVERRIDES = {
+            'pc': 'PC/s',
+            'pcs': 'PC/s',
+            'pc/s': 'PC/s',
+            'roll': 'Roll/s',
+            'rolls': 'Roll/s',
+            'roll/s': 'Roll/s',
+            'meter': 'Meter/s',
+            'meters': 'Meter/s',
+            'meter/s': 'Meter/s',
+            'set': 'Set/s',
+            'sets': 'Set/s',
+            'set/s': 'Set/s',
+            'assy': 'Assy',
+            'box': 'Box',
+            'length': 'Length'
+        };
+
+        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
+
+        const normalizeUnitValue = (value) => {
+            if (typeof value !== 'string') return '';
+            const trimmed = value.trim();
+            if (!trimmed) return '';
+            const key = trimmed.toLowerCase();
+            if (UNIT_DISPLAY_OVERRIDES[key]) {
+                return UNIT_DISPLAY_OVERRIDES[key];
+            }
+            if (trimmed.includes('/')) {
+                return trimmed
+                    .split('/')
+                    .map((segment, index) => index === 0
+                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+                        : segment.toLowerCase())
+                    .join('/');
+            }
+            if (trimmed.length <= 4) {
+                return trimmed.toUpperCase();
+            }
+            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+        };
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                const normalized = normalizeUnitValue(unit);
+                if (!normalized) return;
+                const key = normalized.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(normalized);
+            });
+            return ordered;
+        };
+
+        const ensurePreferredUnitList = (units = []) => {
+            const source = Array.isArray(units) ? units : [];
+            const normalizedSource = source.map(normalizeUnitValue);
+            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
+        };
+
+        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
+
+        const getPreferredUnit = (units) => {
+            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
+            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
+        };
+
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = ensurePreferredUnitList(list);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
+            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return ensurePreferredUnitList();
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return normalizeUnitValue(item.unit);
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return normalizeUnitValue(item.issuingUnit);
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'PC/s';
+        };
 
         // --- UI Components ---
 
@@ -53,9 +230,26 @@
         // A generic modal component
         const Modal = ({ children, onClose, size = 'md', zIndexClass = 'z-50' }) => {
             const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
+            const overlayClasses = [
+                'fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4',
+                'transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden',
+                zIndexClass
+            ].join(' ');
+            const containerClasses = [
+                'bg-white rounded-2xl shadow-2xl w-full',
+                sizeClasses[size],
+                'p-6 relative transform transition-all duration-300 mb-8'
+            ].join(' ');
             return (
-                <div className={`fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4 transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden ${zIndexClass}`}>
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 mb-8`}>
+                <div
+                    className={overlayClasses}
+                    role="presentation"
+                >
+                    <div
+                        className={containerClasses}
+                        role="dialog"
+                        aria-modal="true"
+                    >
                         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
@@ -193,42 +387,55 @@
                 <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
                     <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
-                        <div className="relative w-full sm:w-64">
-                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <div className="flex flex-wrap gap-2 items-center justify-end w-full sm:w-auto">
+                            <div className="relative w-full sm:w-64">
+                                <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => exportInventoryToCSV(filteredInventory)}
+                                disabled={filteredInventory.length === 0}
+                                className="px-4 py-1.5 text-sm font-semibold rounded-full border border-gray-200 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                ⬇️ Export CSV
+                            </button>
                         </div>
                     </div>
                     {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg">
-                            <table className="w-full text-left table-auto">
-                                <thead className="sticky top-0 bg-white z-10">
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) <= reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-orange-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
+                        <div className="h-[60vh] border rounded-lg overflow-hidden">
+                            <div className="h-full overflow-auto">
+                                <table className="w-full min-w-[720px] text-left table-auto">
+                                    <thead className="sticky top-0 bg-white z-10">
+                                        <tr className="border-b-2 border-gray-100">
+                                            <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
+                                            <th className="p-4 text-sm font-semibold text-gray-600">Unit</th>
+                                            {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.length > 0 ? filteredInventory.map(item => {
+                                            const reorder = Number(item.reorderLevel || settings.reorderLevel);
+                                            const isLowStock = Number(item.qty) <= reorder;
+                                            const primaryUnit = getPrimaryIssuingUnit(item);
+                                            return (
+                                                <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
+                                                    <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
+                                                    <td className="p-4">
+                                                        <p className="font-medium text-gray-800">{item.name}</p>
+                                                        <p className="text-sm text-gray-500">{item.brand}</p>
+                                                        <p className={`text-xs font-semibold mt-1 ${isLowStock ? 'text-orange-500' : 'text-gray-500'}`}>Stock: {item.qty}</p>
+                                                    </td>
+                                                    <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
+                                                    <td className="p-4 text-gray-600">{primaryUnit}</td>
+                                                    {isAdminMode && (
+                                                        <td className="p-4 text-right">
+                                                            <div className="flex justify-end gap-1">
+                                                                <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
+                                                                <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
+                                                                <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
                                                         </div>
                                                     </td>
                                                 )}
@@ -237,8 +444,9 @@
                                     }) : (
                                         <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
                                     )}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -276,24 +484,80 @@
         };
 
         // Form for adding or editing an inventory item
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
+        const ItemForm = ({ currentItem, onSave, onClose, setNotification, unitOptions = GLOBAL_UNIT_OPTIONS }) => {
+            const sanitizedUnitOptions = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
+            const preferredUnit = getPreferredUnit(sanitizedUnitOptions);
+
+            const defaultItemState = () => ({
+                name: '',
+                brand: '',
+                qty: '0',
+                location: '',
+                sku: '',
+                price: '0.00',
+                reorderLevel: '10',
+                unit: preferredUnit,
+                issuingUnit: preferredUnit,
+                issuingUnits: [preferredUnit]
+            });
+
+            const [item, setItem] = useState(defaultItemState);
             const [isSaving, setIsSaving] = useState(false);
+            const [isCustomUnit, setIsCustomUnit] = useState(false);
 
             useEffect(() => {
                 if (currentItem) {
-                    setItem(currentItem);
+                    const existingUnit = normalizeUnitValue(currentItem.unit || currentItem.issuingUnit || preferredUnit) || preferredUnit;
+                    const normalizedIssuingUnits = Array.isArray(currentItem.issuingUnits) && currentItem.issuingUnits.length > 0
+                        ? ensurePreferredUnitList([existingUnit, ...currentItem.issuingUnits])
+                        : ensurePreferredUnitList([existingUnit]);
+                    setItem({
+                        ...currentItem,
+                        unit: existingUnit,
+                        issuingUnit: existingUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: String(currentItem.qty ?? 0),
+                        price: String(currentItem.price ?? 0),
+                        reorderLevel: String(currentItem.reorderLevel ?? 0)
+                    });
+                    setIsCustomUnit(!sanitizedUnitOptions.some(option => option.toLowerCase() === existingUnit.toLowerCase()));
                 } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+                    setItem({
+                        ...defaultItemState(),
+                        sku: `SKU-${Date.now()}`
+                    });
+                    setIsCustomUnit(false);
                 }
-            }, [currentItem]);
+            }, [currentItem, preferredUnit, sanitizedUnitOptions]);
 
             const handleChange = (e) => {
                 const { name, value } = e.target;
                 const uppercaseFields = ['sku', 'name', 'brand', 'location'];
                 setItem(prev => ({ ...prev, [name]: uppercaseFields.includes(name) ? value.toUpperCase() : value }));
             };
-            
+
+            const handleUnitSelect = (e) => {
+                const { value } = e.target;
+                if (value === '__custom__') {
+                    setIsCustomUnit(true);
+                    setItem(prev => ({ ...prev, unit: '', issuingUnit: '' }));
+                    return;
+                }
+                setIsCustomUnit(false);
+                const normalized = normalizeUnitValue(value) || preferredUnit;
+                setItem(prev => ({
+                    ...prev,
+                    unit: normalized,
+                    issuingUnit: normalized,
+                    issuingUnits: ensurePreferredUnitList([normalized, ...(prev.issuingUnits || [])])
+                }));
+            };
+
+            const handleCustomUnitChange = (e) => {
+                const value = normalizeUnitValue(e.target.value);
+                setItem(prev => ({ ...prev, unit: value, issuingUnit: value }));
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!item.name || !item.sku) {
@@ -301,8 +565,23 @@
                     return;
                 }
                 setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
+                try {
+                    const rawUnit = item.unit && item.unit.trim() ? item.unit.trim() : 'PC/s';
+                    const normalizedUnit = normalizeUnitValue(rawUnit) || 'PC/s';
+                    const issuingUnitsList = Array.isArray(item.issuingUnits) ? item.issuingUnits : [];
+                    const normalizedIssuingUnits = ensurePreferredUnitList([normalizedUnit, ...issuingUnitsList]);
+                    await onSave({
+                        ...item,
+                        unit: normalizedUnit,
+                        issuingUnit: normalizedUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: Number(item.qty || 0),
+                        price: parseFloat(item.price || 0),
+                        reorderLevel: Number(item.reorderLevel || 0)
+                    });
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
             return (
@@ -317,6 +596,31 @@
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
                         <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Unit of Measure</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <select
+                                value={isCustomUnit ? '__custom__' : (item.unit || preferredUnit)}
+                                onChange={handleUnitSelect}
+                                className="w-full sm:w-1/2 px-3 py-2 border rounded-lg"
+                            >
+                                {sanitizedUnitOptions.map(option => (
+                                    <option key={option} value={option}>{option}</option>
+                                ))}
+                                <option value="__custom__">Custom...</option>
+                            </select>
+                            {isCustomUnit && (
+                                <input
+                                    type="text"
+                                    value={item.unit || ''}
+                                    onChange={handleCustomUnitChange}
+                                    className="w-full px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="Enter custom unit"
+                                />
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Default unit is PC/s. Use settings to manage the dropdown options or enter a custom value.</p>
                     </div>
                     { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
                     <div className="flex justify-end gap-4 pt-4">
@@ -396,14 +700,125 @@
         
         // Form for changing application settings (admin pass, reorder level)
         const SettingsForm = ({ settings, onSave, onClose }) => {
-            const [localSettings, setLocalSettings] = useState(settings);
+            const [localSettings, setLocalSettings] = useState(() => ({
+                ...settings,
+                unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+            }));
             const [isSaving, setIsSaving] = useState(false);
+            const [unitDraft, setUnitDraft] = useState('');
+            const [editingIndex, setEditingIndex] = useState(null);
+
+            useEffect(() => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    ...settings,
+                    unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+                }));
+            }, [settings]);
+
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(localSettings.unitOptions), [localSettings.unitOptions]);
+
+            const formatUnitForStorage = (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) return '';
+                const normalizedKey = trimmed.toLowerCase();
+                const canonicalMap = {
+                    'pc/s': 'PC/s',
+                    pcs: 'PC/s',
+                    pc: 'PC/s',
+                    'roll/s': 'Roll/s',
+                    rolls: 'Roll/s',
+                    roll: 'Roll/s',
+                    'meter/s': 'Meter/s',
+                    meters: 'Meter/s',
+                    meter: 'Meter/s',
+                    'set/s': 'Set/s',
+                    sets: 'Set/s',
+                    set: 'Set/s'
+                };
+                if (canonicalMap[normalizedKey]) {
+                    return canonicalMap[normalizedKey];
+                }
+                if (normalizedKey === 'assy') return 'Assy';
+                if (normalizedKey === 'box') return 'Box';
+                if (normalizedKey === 'length') return 'Length';
+                if (trimmed.includes('/')) {
+                    return trimmed
+                        .split('/')
+                        .map((part, index) => index === 0
+                            ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+                            : part.toLowerCase())
+                        .join('/');
+                }
+                if (trimmed.length <= 4) {
+                    return trimmed.toUpperCase();
+                }
+                return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+            };
 
             const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
+            const handleUnitSubmit = (e) => {
+                e.preventDefault();
+                const formatted = formatUnitForStorage(unitDraft);
+                if (!formatted) {
+                    return;
+                }
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? [...prev.unitOptions] : [];
+                    if (editingIndex !== null) {
+                        current[editingIndex] = formatted;
+                    } else if (!current.some(unit => unit.toLowerCase() === formatted.toLowerCase())) {
+                        current.push(formatted);
+                    }
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                setUnitDraft('');
+                setEditingIndex(null);
+            };
+
+            const handleEditUnit = (index) => {
+                setEditingIndex(index);
+                setUnitDraft(normalizedUnits[index] || '');
+            };
+
+            const handleDeleteUnit = (index) => {
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? prev.unitOptions.filter((_, idx) => idx !== index) : [];
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                if (editingIndex === index) {
+                    setEditingIndex(null);
+                    setUnitDraft('');
+                }
+            };
+
+            const handleCancelUnitEdit = () => {
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
+            const handleResetUnits = () => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    unitOptions: [...DEFAULT_ISSUING_UNITS]
+                }));
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
             const handleSave = async () => {
                 setIsSaving(true);
-                await onSave(localSettings);
+                await onSave({
+                    ...localSettings,
+                    unitOptions: ensurePreferredUnitList(localSettings.unitOptions)
+                });
                 setIsSaving(false);
             };
 
@@ -411,19 +826,64 @@
                 <Modal onClose={onClose} size="lg">
                     <div className="space-y-6">
                         <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                        <div>
-                           <label className="block text-sm font-medium">Admin Password</label>
-                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Admin Password</label>
+                                <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Default Reorder Level</label>
+                                <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                            </div>
                         </div>
-                        <div>
-                           <label className="block text-sm font-medium">Default Reorder Level</label>
-                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                        <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                            <div className="flex items-center justify-between gap-2">
+                                <h3 className="font-bold text-gray-800">Units of Measure</h3>
+                                <button type="button" onClick={handleResetUnits} className="text-xs font-semibold text-indigo-600 hover:text-indigo-500">Reset to defaults</button>
+                            </div>
+                            <p className="text-xs text-gray-500">Customize the dropdown values used when selecting units. PC/s will always be available.</p>
+                            <form onSubmit={handleUnitSubmit} className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    type="text"
+                                    value={unitDraft}
+                                    onChange={(e) => setUnitDraft(e.target.value)}
+                                    className="flex-1 px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="e.g., BOX"
+                                />
+                                <div className="flex gap-2">
+                                    {editingIndex !== null && (
+                                        <button type="button" onClick={handleCancelUnitEdit} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Cancel</button>
+                                    )}
+                                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">
+                                        {editingIndex !== null ? 'Save Unit' : 'Add Unit'}
+                                    </button>
+                                </div>
+                            </form>
+                            <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {normalizedUnits.map((unit, index) => (
+                                    <li key={unit} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2 text-sm">
+                                        <span className="font-medium text-gray-700">{unit}</span>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => handleEditUnit(index)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteUnit(index)}
+                                                className="text-xs text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline"
+                                                disabled={normalizedUnits.length <= 1}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                                {normalizedUnits.length === 0 && <li className="text-xs text-gray-500">No units configured.</li>}
+                            </ul>
                         </div>
                         <div className="flex justify-end gap-4 pt-4 border-t">
                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                            <button type="button" onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
                                 {isSaving ? 'Saving...' : 'Save Settings'}
                             </button>
@@ -516,23 +976,448 @@
                 </Modal>
             );
         };
-        
-        // Form for creating a new delivery receipt
-        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification }) => {
-            const [siteId, setSiteId] = useState('');
-            const [customerName, setCustomerName] = useState('');
-            const [address, setAddress] = useState('');
-            const [poNumber, setPoNumber] = useState('');
-            const [remarks, setRemarks] = useState('');
-            const [cart, setCart] = useState([]);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [showPrice, setShowPrice] = useState(true);
 
-            const filteredInventory = useMemo(() => inventory.filter(i =>
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
+        const ManualReceiptModal = ({
+            sites,
+            unitOptions = [],
+            onFinalize,
+            onClose,
+            setNotification,
+            initialData = null,
+            onDraftChange = () => {}
+        }) => {
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
+
+            const defaultUnit = normalizedUnits[0] || 'PC/s';
+
+            const buildRow = useCallback(() => ({
+                id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: '',
+                dispatchQty: 1,
+                unit: defaultUnit,
+                price: 0,
+                isManual: true
+            }), [defaultUnit]);
+
+            const normalizeManualItem = useCallback((item) => ({
+                id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: (item.name || '').toUpperCase(),
+                dispatchQty: Math.max(0, Number(item.dispatchQty || item.requestedQty || 0)),
+                unit: normalizeUnitValue(item.unit || item.issuingUnit || defaultUnit) || defaultUnit,
+                price: Math.max(0, Number(item.price || 0)),
+                isManual: true
+            }), [defaultUnit]);
+
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [items, setItems] = useState(() => {
+                if (initialData?.items?.length) {
+                    return initialData.items.map(normalizeManualItem);
+                }
+                return [buildRow()];
+            });
+            const draftSnapshotRef = useRef('null');
+
+            useEffect(() => {
+                if (initialData) {
+                    const sanitizedItems = initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()];
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setShowPrice(initialData.showPrice ?? true);
+                    setItems(sanitizedItems);
+                    draftSnapshotRef.current = JSON.stringify({
+                        siteId: initialData.siteId || '',
+                        customerName: initialData.customerName || '',
+                        address: initialData.address || '',
+                        poNumber: initialData.poNumber || '',
+                        remarks: initialData.remarks || '',
+                        items: sanitizedItems,
+                        showPrice: initialData.showPrice ?? true,
+                        origin: 'manual'
+                    });
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setShowPrice(true);
+                    setItems([buildRow()]);
+                    draftSnapshotRef.current = 'null';
+                }
+            }, [initialData, buildRow, normalizeManualItem]);
+
+            useEffect(() => {
+                const normalizedItems = items.map(normalizeManualItem);
+                const hasItemChanges = normalizedItems.some(item => {
+                    const hasName = item.name.trim().length > 0;
+                    const qtyChanged = Number(item.dispatchQty) !== 1 && Number(item.dispatchQty) > 0;
+                    const hasPrice = Number(item.price) > 0;
+                    return hasName || hasPrice || qtyChanged;
+                });
+                const hasContent = Boolean(
+                    siteId ||
+                    customerName ||
+                    address ||
+                    poNumber ||
+                    remarks ||
+                    hasItemChanges
+                );
+
+                if (!hasContent) {
+                    if (draftSnapshotRef.current !== 'null') {
+                        draftSnapshotRef.current = 'null';
+                        onDraftChange(null);
+                    }
+                    return;
+                }
+
+                const draftPayload = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: normalizedItems,
+                    showPrice,
+                    origin: 'manual'
+                };
+
+                const serialized = JSON.stringify(draftPayload);
+                if (draftSnapshotRef.current !== serialized) {
+                    draftSnapshotRef.current = serialized;
+                    onDraftChange(draftPayload);
+                }
+            }, [siteId, customerName, address, poNumber, remarks, items, showPrice, normalizeManualItem, onDraftChange]);
+
+            const handleReset = () => {
+                setSiteId('');
+                setCustomerName('');
+                setAddress('');
+                setPoNumber('');
+                setRemarks('');
+                setShowPrice(true);
+                setItems([buildRow()]);
+                draftSnapshotRef.current = 'null';
+                onDraftChange(null);
+            };
+
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const handleItemChange = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id !== id) return item;
+                    if (field === 'dispatchQty') {
+                        const qty = Math.max(0, Number(value));
+                        return { ...item, dispatchQty: qty };
+                    }
+                    if (field === 'price') {
+                        const price = Math.max(0, Number(value));
+                        return { ...item, price };
+                    }
+                    if (field === 'unit') {
+                        return { ...item, unit: normalizeUnitValue(value) || defaultUnit };
+                    }
+                    if (field === 'name') {
+                        return { ...item, name: value.toUpperCase() };
+                    }
+                    return item;
+                }));
+            };
+
+            const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
+            const handleRemoveRow = (id) => setItems(prev => prev.filter(item => item.id !== id));
+
+            const handleFinalize = () => {
+                if (!siteId) {
+                    setNotification?.({ type: 'error', message: 'Please select a site before continuing.' });
+                    return;
+                }
+
+                const cleanedItems = items
+                    .map(normalizeManualItem)
+                    .filter(item => item.name.trim() && item.dispatchQty > 0);
+
+                if (cleanedItems.length === 0) {
+                    setNotification?.({ type: 'error', message: 'Add at least one manual item with a quantity greater than zero.' });
+                    return;
+                }
+
+                const receiptData = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: cleanedItems,
+                    showPrice,
+                    origin: 'manual'
+                };
+
+                draftSnapshotRef.current = JSON.stringify(receiptData);
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            };
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleReset}
+                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
+                                >
+                                    🗑️ Start New Draft
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAddRow}
+                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                                >
+                                    ➕ Add Manual Item
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                <option value="">-- Select Site --</option>
+                                {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <input type="text" placeholder="Customer Name" value={customerName} onChange={handleUppercaseChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleUppercaseChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="Address" value={address} onChange={handleUppercaseChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                        </div>
+
+                        <div className="border rounded-lg bg-white">
+                            <div className="max-h-[40vh] overflow-y-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10">
+                                        <tr>
+                                            <th className="p-3 w-20">Qty</th>
+                                            <th className="p-3 w-32">Unit</th>
+                                            <th className="p-3">Description</th>
+                                            <th className="p-3 w-32">Unit Price</th>
+                                            <th className="p-3 w-16"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {items.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={item.dispatchQty}
+                                                        onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <select
+                                                        value={item.unit}
+                                                        onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    >
+                                                        {normalizedUnits.map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="p-2">
+                                                    <textarea
+                                                        value={item.name}
+                                                        onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded resize-none h-20 uppercase"
+                                                    ></textarea>
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={item.price}
+                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top text-right">
+                                                    <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {items.length === 0 && (
+                                            <tr>
+                                                <td colSpan="5" className="p-6 text-center text-gray-500">No manual items added yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <textarea
+                            placeholder="Remarks (Optional)"
+                            value={remarks}
+                            onChange={handleUppercaseChange(setRemarks)}
+                            className="w-full px-3 py-2 border rounded-lg uppercase min-h-[80px]"
+                        ></textarea>
+                        <label className="flex items-center gap-2 text-sm bg-gray-100 px-3 py-2 rounded-lg">
+                            <input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show price & totals on preview
+                        </label>
+
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                            <button onClick={handleFinalize} className="px-6 py-2 bg-teal-600 text-white rounded-full hover:bg-teal-700">Preview & Finalize</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Form for creating a new delivery receipt
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [cart, setCart] = useState(initialData?.items || []);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [selectionState, setSelectionState] = useState({});
+            const draftSnapshotRef = useRef('null');
+
+            useEffect(() => {
+                if (initialData) {
+                    const sanitizedItems = (initialData.items || []).map(item => ({
+                        ...item,
+                        unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
+                    }));
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setCart(sanitizedItems);
+                    setShowPrice(initialData.showPrice ?? true);
+                    draftSnapshotRef.current = JSON.stringify({
+                        siteId: initialData.siteId || '',
+                        customerName: initialData.customerName || '',
+                        address: initialData.address || '',
+                        poNumber: initialData.poNumber || '',
+                        remarks: initialData.remarks || '',
+                        items: sanitizedItems,
+                        showPrice: initialData.showPrice ?? true,
+                        origin: 'inventory'
+                    });
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setCart([]);
+                    setShowPrice(true);
+                    draftSnapshotRef.current = 'null';
+                }
+                setSelectionState({});
+            }, [initialData]);
+
+            useEffect(() => {
+                const normalizedCart = cart.map(item => ({
+                    ...item,
+                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
+                }));
+
+                const hasContent = Boolean(
+                    siteId ||
+                    customerName ||
+                    address ||
+                    poNumber ||
+                    remarks ||
+                    normalizedCart.length > 0
+                );
+
+                if (!hasContent) {
+                    if (draftSnapshotRef.current !== 'null') {
+                        draftSnapshotRef.current = 'null';
+                        onDraftChange(null);
+                    }
+                    return;
+                }
+
+                const draftPayload = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: normalizedCart,
+                    showPrice,
+                    origin: 'inventory'
+                };
+
+                const serialized = JSON.stringify(draftPayload);
+                if (draftSnapshotRef.current !== serialized) {
+                    draftSnapshotRef.current = serialized;
+                    onDraftChange(draftPayload);
+                }
+            }, [siteId, customerName, address, poNumber, remarks, cart, showPrice, onDraftChange]);
+
+            const handleResetForm = () => {
+                setSiteId('');
+                setCustomerName('');
+                setAddress('');
+                setPoNumber('');
+                setRemarks('');
+                setCart([]);
+                setShowPrice(true);
+                setSelectionState({});
+                draftSnapshotRef.current = 'null';
+                onDraftChange(null);
+            };
+
+            const filteredInventory = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return inventory;
+                return inventory.filter(i => {
+                    const name = (i.name || '').toLowerCase();
+                    const sku = (i.sku || '').toLowerCase();
+                    return name.includes(term) || sku.includes(term);
+                });
+            }, [inventory, searchTerm]);
 
             const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const getSelectionForItem = (item) => {
+                const options = resolveUnitOptions(item);
+                const defaults = { qty: 1, unit: options[0] };
+                return { ...defaults, ...(selectionState[item.id] || {}) };
+            };
+
+            const updateSelection = (itemId, field, value) => {
+                const nextValue = field === 'qty'
+                    ? value.replace(/[^0-9.]/g, '')
+                    : normalizeUnitValue(value) || value;
+                setSelectionState(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        [field]: nextValue
+                    }
+                }));
+            };
 
             const addToCart = (item) => {
                 setCart(prev => {
@@ -540,29 +1425,56 @@
                         setNotification({ type: 'info', message: `${item.name} is already in the list.` });
                         return prev;
                     }
-                    return [...prev, { ...item, dispatchQty: 1 }];
+
+                    const selection = getSelectionForItem(item);
+                    const parsedQty = Math.max(0, Number(selection.qty || 0));
+                    if (!parsedQty) {
+                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero before adding.' });
+                        return prev;
+                    }
+
+                    const inventoryItem = inventory.find(i => i.id === item.id);
+                    if (inventoryItem && parsedQty > Number(inventoryItem.qty)) {
+                        setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                        return prev;
+                    }
+
+                    const nextUnit = normalizeUnitValue(selection.unit || getPrimaryIssuingUnit(item)) || getPrimaryIssuingUnit(item);
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: nextUnit }];
                 });
             };
 
             const updateCartQty = (id, qty) => {
                 const inventoryItem = inventory.find(i => i.id === id);
                 const newQty = Math.max(0, Number(qty));
-                if (newQty > inventoryItem.qty) {
+                if (inventoryItem && newQty > Number(inventoryItem.qty)) {
                     setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
-                    setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
+                    setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: Number(inventoryItem.qty) } : i));
                     return;
                 }
-                setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+                setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+            };
+
+            const updateCartUnit = (id, unit) => {
+                const normalized = normalizeUnitValue(unit) || getPrimaryIssuingUnit(cart.find(i => i.id === id) || {});
+                setCart(prev => prev.map(i => i.id === id ? { ...i, unit: normalized } : i));
             };
 
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
-            
+
             const handleFinalize = () => {
                 const finalCart = cart.filter(i => i.dispatchQty > 0);
                 if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
                 if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
-                
-                const receiptData = { siteId, customerName, address, poNumber, remarks, items: finalCart, showPrice };
+
+                const normalizedCart = finalCart.map(item => ({
+                    ...item,
+                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
+                }));
+
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
+                draftSnapshotRef.current = JSON.stringify({ ...receiptData, origin: 'inventory' });
+                onDraftChange(receiptData);
                 onFinalize(receiptData);
             }
 
@@ -571,7 +1483,18 @@
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleResetForm}
+                                    className="px-4 py-2 rounded-full text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
+                                >
+                                    🔄 Reset Form
+                                </button>
+                            </div>
+                        </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
                                      <option value="">-- Select Site --</option>
@@ -587,22 +1510,58 @@
                                     <thead className="sticky top-0 bg-gray-50 z-10">
                                         <tr>
                                             <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
+                                            <th className="p-2">Issuing Unit</th>
+                                            <th className="p-2 w-48">Quantity</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {filteredInventory.map(item => {
+                                            const selection = getSelectionForItem(item);
+                                            const unitOptions = resolveUnitOptions(item);
+                                            const inCart = cart.some(c => c.id === item.id);
+                                            return (
+                                                <tr key={item.id} className="border-b">
+                                                    <td className="p-2">
+                                                        <div className="flex flex-col">
+                                                            <span>{item.name}</span>
+                                                            <span className="text-xs text-gray-400">({item.sku})</span>
+                                                            <span className="text-xs text-gray-500">Stock: {item.qty}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <select
+                                                            value={selection.unit}
+                                                            onChange={(e) => updateSelection(item.id, 'unit', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                            disabled={inCart}
+                                                        >
+                                                            {unitOptions.map(option => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={selection.qty}
+                                                                onChange={(e) => updateSelection(item.id, 'qty', e.target.value)}
+                                                                className="w-20 p-1 border rounded"
+                                                                disabled={inCart}
+                                                            />
+                                                            <button
+                                                                onClick={() => addToCart(item)}
+                                                                className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300"
+                                                                disabled={inCart}
+                                                            >
+                                                                {inCart ? 'Added' : 'Add'}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -613,15 +1572,22 @@
                             <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
                                     <tbody>
                                         {cart.length > 0 ? cart.map(item => (
                                             <tr key={item.id} className="border-b">
                                                 <td className="p-2">{item.name}</td>
                                                 <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2">
+                                                    <select value={item.unit} onChange={(e) => updateCartUnit(item.id, e.target.value)} className="w-full px-2 py-1 border rounded-md">
+                                                        {resolveUnitOptions(item).map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
                                                 <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
                                             </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                        )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -641,13 +1607,36 @@
         };
         
         // Modal for showing historical documents (DRs, Orders)
-        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type }) => {
+        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [viewingReceipt, setViewingReceipt] = useState(null);
+
+            const filteredDocuments = useMemo(() => {
+                const baseDocs = documents || [];
+                if (type !== 'dr_manager') return baseDocs;
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return baseDocs;
+                return baseDocs.filter(doc => {
+                    const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
+                    const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
+                    const siteName = (doc.siteName || '').toLowerCase();
+                    const dateTokens = formatDateForSearch(doc.createdAt);
+                    return (
+                        number.includes(term) ||
+                        identifier.includes(term) ||
+                        siteName.includes(term) ||
+                        (dateTokens && dateTokens.includes(term))
+                    );
+                });
+            }, [documents, searchTerm, type]);
+
             const groupedDocuments = useMemo(() => {
-                if (!documents) return {};
+                const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
+                if (!source.length) return {};
                 if (type !== 'dr_manager') {
-                    return { 'All': documents };
+                    return { 'All': source };
                 }
-                return documents.reduce((acc, doc) => {
+                return source.reduce((acc, doc) => {
                     const key = doc.siteName || 'Uncategorized';
                     if (!acc[key]) {
                         acc[key] = [];
@@ -655,70 +1644,112 @@
                     acc[key].push(doc);
                     return acc;
                 }, {});
-            }, [documents, type]);
-            
+            }, [filteredDocuments, documents, type]);
+
+            const handleView = (doc) => {
+                if (type === 'dr_manager') {
+                    setViewingReceipt(doc);
+                } else if (openDetailView) {
+                    openDetailView(doc);
+                }
+            };
+
+            const hasDocuments = Object.keys(groupedDocuments).length > 0;
+
             return (
                 <Modal onClose={onClose} size="7xl">
                     <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
-                            {Object.entries(groupedDocuments).map(([groupName, docs]) => (
-                                <div key={groupName} className="mb-8">
-                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
-                                    <table className="w-full text-left">
-                                        <thead className="sticky top-0 bg-gray-50 z-10">
-                                            <tr>
-                                                <th className="p-3">Number</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Identifier</th>
-                                                <th className="p-3">Items</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {docs.map(doc => {
-                                                const getStatusClass = (status) => {
-                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                    if (status === 'Finished') return 'text-blue-500 bg-blue-100';
-                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                    return 'text-gray-500 bg-gray-100';
-                                                }
-                                                return (
-                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                     <td className="p-3">{doc.items.length}</td>
-                                                     <td className="p-3">
-                                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                             {doc.status || 'Active'}
-                                                         </span>
-                                                     </td>
-                                                     <td className="p-3 text-right">
-                                                         <div className="flex gap-2 justify-end">
-                                                             <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                             {actions.map(action => (
-                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                             ))}
-                                                         </div>
-                                                     </td>
-                                                 </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ))}
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                            {type === 'dr_manager' && viewingReceipt && (
+                                <button onClick={() => setViewingReceipt(null)} className="px-4 py-2 text-sm rounded-full bg-gray-200 hover:bg-gray-300 no-print">Back to List</button>
+                            )}
                         </div>
+
+                        {type === 'dr_manager' && viewingReceipt ? (
+                            <div className="h-[60vh] overflow-y-auto border rounded-lg p-4 bg-white">
+                                <ReceiptDetailView
+                                    receipt={viewingReceipt}
+                                    template={template}
+                                    onClose={() => setViewingReceipt(null)}
+                                    renderInline={true}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                {type === 'dr_manager' && (
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                        placeholder="Search by number, site, name, or date (e.g. 2024-03-18)"
+                                    />
+                                )}
+                                <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
+                                    {hasDocuments ? (
+                                        Object.entries(groupedDocuments).map(([groupName, docs]) => (
+                                            <div key={groupName} className="mb-8">
+                                                {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                                <table className="w-full text-left">
+                                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                                        <tr>
+                                                            <th className="p-3">Number</th>
+                                                            <th className="p-3">Date</th>
+                                                            <th className="p-3">Identifier</th>
+                                                            <th className="p-3">Items</th>
+                                                            <th className="p-3">Status</th>
+                                                            <th className="p-3 text-right">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {docs.map(doc => {
+                                                            const getStatusClass = (status) => {
+                                                                if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                                if (status === 'Finished') return 'text-blue-500 bg-blue-100';
+                                                                if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                                if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                                return 'text-gray-500 bg-gray-100';
+                                                            }
+                                                            return (
+                                                             <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                                 <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                                 <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                                 <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                                 <td className="p-3">{doc.items.length}</td>
+                                                                 <td className="p-3">
+                                                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                                         {doc.status || 'Active'}
+                                                                     </span>
+                                                                 </td>
+                                                                 <td className="p-3 text-right">
+                                                                     <div className="flex gap-2 justify-end">
+                                                                         <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                                         {actions.map(action => (
+                                                                             <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                                         ))}
+                                                                     </div>
+                                                                 </td>
+                                                             </tr>
+                                                            )
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-gray-500 italic">{type === 'dr_manager' ? 'No receipts found.' : 'No records found.'}</div>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </Modal>
             )
         };
         
         // Component to display a detailed, printable receipt view
-        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText }) => {
+        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText, renderInline = false }) => {
             const [isSaving, setIsSaving] = useState(false);
             const [isSaved, setIsSaved] = useState(false);
 
@@ -758,7 +1789,7 @@
             };
 
             const content = (
-                <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
+                <div className="printable-area mx-auto w-full max-w-[850px] space-y-6 p-8 bg-white font-serif text-gray-900">
                     {/* Header */}
                     <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
                         <div className="w-1/4">
@@ -809,36 +1840,38 @@
                     </div>
 
                     {/* Items Table */}
-                    <table className="w-full text-left text-sm table-auto border-collapse">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                <th className="p-2 border">Qty</th>
-                                <th className="p-2 border">Unit</th>
-                                <th className="p-2 border">Description</th>
-                                {showPrice && <th className="p-2 border text-right">Unit Price</th>}
-                                {showPrice && <th className="p-2 border text-right">Total</th>}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {receipt.items.map(item => (
-                                <tr key={item.id} className="border-b">
-                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">pcs</td>
-                                    <td className="p-2 border">{item.name}</td>
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
-                                </tr>
-                            ))}
-                        </tbody>
-                        {showPrice && (
-                            <tfoot className="font-bold">
+                    <div className="overflow-x-hidden">
+                        <table className="w-full text-left text-sm table-fixed border-collapse">
+                            <thead className="bg-gray-100">
                                 <tr>
-                                    <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
-                                    <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                    <th className="w-20 p-2 border">Qty</th>
+                                    <th className="w-24 p-2 border">Unit</th>
+                                    <th className="p-2 border">Description</th>
+                                    {showPrice && <th className="w-32 p-2 border text-right">Unit Price</th>}
+                                    {showPrice && <th className="w-32 p-2 border text-right">Total</th>}
                                 </tr>
-                            </tfoot>
-                        )}
-                    </table>
+                            </thead>
+                            <tbody>
+                                {receipt.items.map(item => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
+                                        <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
+                                        <td className="p-2 border align-top break-words">{item.name}</td>
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                    </tr>
+                                ))}
+                            </tbody>
+                            {showPrice && (
+                                <tfoot className="font-bold">
+                                    <tr>
+                                        <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
+                                        <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
 
                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
                     
@@ -853,7 +1886,7 @@
 
             if (isPreview) {
                  return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
+                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
                          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
                              <div className="p-8">
                                  {content}
@@ -876,6 +1909,18 @@
                          </div>
                      </div>
                  )
+            }
+
+            if (renderInline) {
+                return (
+                    <div className="space-y-4">
+                        {content}
+                        <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Back to List</button>
+                            <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                        </div>
+                    </div>
+                );
             }
 
             return (
@@ -1192,7 +2237,7 @@
             const [deliveryReceipts, setDeliveryReceipts] = useState([]);
             const [userOrders, setUserOrders] = useState([]);
             const [restockCart, setRestockCart] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0 });
+            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0, unitOptions: [...DEFAULT_ISSUING_UNITS] });
             const [drTemplate, setDrTemplate] = useState({ 
                 title: 'DELIVERY RECEIPT', 
                 logoUrl: '', 
@@ -1205,13 +2250,24 @@
             const [notification, setNotification] = useState(null);
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
+            const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
+            const [receiptDraft, setReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.inventoryReceiptDraft));
+            const [manualReceiptDraft, setManualReceiptDraft] = useState(() => loadStoredJSON(STORAGE_KEYS.manualReceiptDraft));
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
-            
+
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             // --- Firebase Initialization and Auth Effect ---
+            useEffect(() => {
+                persistStoredJSON(STORAGE_KEYS.manualReceiptDraft, manualReceiptDraft);
+            }, [manualReceiptDraft]);
+
+            useEffect(() => {
+                persistStoredJSON(STORAGE_KEYS.inventoryReceiptDraft, receiptDraft);
+            }, [receiptDraft]);
+
             useEffect(() => {
                 try {
                     const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -1267,7 +2323,22 @@
                 const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err));
                 const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err));
                 const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("User Orders snapshot error:", err));
-                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } }, err => console.error("Settings snapshot error:", err));
+                const unsubSettings = onSnapshot(
+                    doc(db, `${basePath}/settings/general`),
+                    (d) => {
+                        if (d.exists()) {
+                            const data = d.data();
+                            const normalizedUnits = ensurePreferredUnitList(data.unitOptions);
+                            setSettings(prev => ({
+                                ...prev,
+                                ...data,
+                                unitOptions: normalizedUnits
+                            }));
+                            setGlobalUnitOptions(normalizedUnits);
+                        }
+                    },
+                    err => console.error("Settings snapshot error:", err)
+                );
                 const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } }, err => console.error("DR Template snapshot error:", err));
 
                 setIsLoading(false);
@@ -1383,31 +2454,40 @@
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const inventoryItems = (receiptData.items || []).filter(item => !item.isManual);
+                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
                         for(let i = 0; i < itemDocs.length; i++) {
                             const invItemDoc = itemDocs[i];
-                            const requestedItem = receiptData.items[i];
-                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
-                             }
+                            const requestedItem = inventoryItems[i];
+                            if (!invItemDoc.exists()) {
+                                throw new Error(`Inventory item "${requestedItem?.name || requestedItem?.id}" no longer exists.`);
+                            }
+                            if (invItemDoc.data().qty < requestedItem.dispatchQty) {
+                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                            }
                         }
-                        
+
                         const newDrNumber = siteDoc.data().lastDrNumber + 1;
                         const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
                         finalDrNumber = drNumberString;
 
-                        for (let i = 0; i < receiptData.items.length; i++) {
-                            transaction.update(itemRefs[i], { qty: increment(-receiptData.items[i].dispatchQty) });
+                        for (let i = 0; i < inventoryItems.length; i++) {
+                            transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
                         }
 
                         transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
                         transaction.update(siteRef, { lastDrNumber: increment(1) });
                     });
-                    
+
                     setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
                     await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
+                    if (pendingReceiptOrigin === 'manual') {
+                        setManualReceiptDraft(null);
+                    } else {
+                        setReceiptDraft(null);
+                    }
                     return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
@@ -1417,18 +2497,20 @@
             };
             
             const handlePreviewAndFinalize = (receiptData) => {
-                const selectedSite = sites.find(s => s.id === receiptData.siteId);
+                const { origin, ...payload } = receiptData || {};
+                const selectedSite = sites.find(s => s.id === payload.siteId);
                 const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
                 const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
 
                 const dataForPreview = {
-                    ...receiptData,
+                    ...payload,
                     drNumber: drNumberString,
                     siteName: selectedSite?.name || 'N/A',
                     createdAt: { toDate: () => new Date() } // Mock server timestamp
                 };
-                setPendingReceipt(dataForPreview); // Store the data
-                setModal('receipt_confirm_and_preview'); // Open the confirmation preview modal
+                setPendingReceiptOrigin(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceipt(dataForPreview);
+                setModal('receipt_confirm_and_preview');
             };
 
             const handleVoidReceipt = async (receipt) => {
@@ -1549,12 +2631,19 @@
             };
             
             const handleSaveSettings = async (newSettings) => {
-                 try {
-                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), newSettings, { merge: true });
-                     await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                     setNotification({type: 'success', message: 'Settings saved successfully!'});
-                     closeModal();
-                 } catch (e) { console.error("Settings save error:", e); setNotification({type: 'error', message: `Failed to save settings: ${e.message}`}); }
+                try {
+                    const sanitizedUnits = ensurePreferredUnitList(newSettings.unitOptions);
+                    const payload = { ...newSettings, unitOptions: sanitizedUnits };
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), payload, { merge: true });
+                    setSettings(prev => ({ ...prev, ...payload }));
+                    setGlobalUnitOptions(sanitizedUnits);
+                    await logAction('Settings Updated', 'Admin preferences were updated.');
+                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    closeModal();
+                } catch (e) {
+                    console.error("Settings save error:", e);
+                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                }
             };
             
             const handleSaveDrTemplate = async (newTemplate) => {
@@ -1593,9 +2682,23 @@
                 setModal(type);
             };
 
-            const closeModal = () => {
+            const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
+                setPendingReceipt(null);
+                setPendingReceiptOrigin('inventory');
+                if (!preserveReceiptDraft) {
+                    setReceiptDraft(null);
+                }
+                if (!preserveManualDraft) {
+                    setManualReceiptDraft(null);
+                }
+            };
+
+            const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: true });
+            const returnToReceiptComposer = () => {
+                setPendingReceipt(null);
+                setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
             };
 
             // --- Render Logic ---
@@ -1660,8 +2763,9 @@
                                          <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
                                      
-                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
+                                    <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
+                                    <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
                             
@@ -1689,29 +2793,60 @@
                     
                     <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt"/>
 
-                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
+                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} unitOptions={settings.unitOptions} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onFinalize={handlePreviewAndFinalize} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'manual_receipt' && (
+                        <ManualReceiptModal
+                            sites={sites}
+                            unitOptions={settings.unitOptions}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={() => closeModal({ preserveManualDraft: true })}
+                            setNotification={setNotification}
+                            initialData={manualReceiptDraft}
+                            onDraftChange={setManualReceiptDraft}
+                        />
+                    )}
+                    {modal === 'receipt' && (
+                        <DeliveryReceiptForm
+                            inventory={inventory}
+                            sites={sites}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeReceiptComposer}
+                            setNotification={setNotification}
+                            initialData={receiptDraft}
+                            onDraftChange={setReceiptDraft}
+                        />
+                    )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
 
-                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={drManagerActions} type="dr_manager"/>}
+                    {modal === 'dr_manager' && (
+                        <DocumentHistoryModal
+                            documents={deliveryReceipts}
+                            onClose={closeModal}
+                            openDetailView={(r) => openModal('dr_detail', r)}
+                            title="Delivery Receipt Manager"
+                            actions={drManagerActions}
+                            type="dr_manager"
+                            template={drTemplate}
+                        />
+                    )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
                     
                     {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
-                        <ReceiptDetailView 
-                            receipt={pendingReceipt} 
-                            template={drTemplate} 
-                            isPreview={true} 
+                        <ReceiptDetailView
+                            receipt={pendingReceipt}
+                            template={drTemplate}
+                            isPreview={true}
                             onConfirm={() => handleSaveReceipt(pendingReceipt)}
-                            onCancel={() => { setPendingReceipt(null); setModal('receipt')}}
+                            onCancel={returnToReceiptComposer}
                             onDone={() => { setPendingReceipt(null); closeModal(); }}
                             confirmText="Save & Prepare for Printing"
                         />
