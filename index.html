@@ -40,86 +40,7 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
-
-        let GLOBAL_UNIT_OPTIONS = [...DEFAULT_ISSUING_UNITS];
-
-        const getPreferredUnit = (options = []) => {
-            if (!Array.isArray(options)) {
-                return 'PC/s';
-            }
-            const normalized = options.map(option => typeof option === 'string' ? option : '').filter(Boolean);
-            const preferredPc = normalized.find(option => option.toLowerCase() === 'pc/s');
-            if (preferredPc) {
-                return preferredPc;
-            }
-            return normalized[0] || 'PC/s';
-        };
-
-        const UNIT_DISPLAY_OVERRIDES = {
-            assy: 'Assy',
-            box: 'Box',
-            length: 'Length',
-            meter: 'Meter',
-            'meter/s': 'Meter',
-            pc: 'PC',
-            pcs: 'PCS',
-            'pc/s': 'PC',
-            roll: 'Roll',
-            'roll/s': 'Roll',
-            set: 'Set',
-            'set/s': 'Set'
-        };
-
-        const UNIT_PLURAL_OVERRIDES = {
-            assy: 'Assys',
-            'pc/s': 'PCs',
-            'roll/s': 'Rolls',
-            'meter/s': 'Meters',
-            'set/s': 'Sets'
-        };
-
-        const formatUnitLabel = (quantity, unit) => {
-            const parsedQty = Number(quantity);
-            const hasPluralQuantity = Number.isFinite(parsedQty) && parsedQty > 1;
-            if (!unit || typeof unit !== 'string' || !unit.trim()) {
-                return hasPluralQuantity ? 'Units' : 'Unit';
-            }
-
-            const trimmedUnit = unit.trim();
-            const normalizedKey = trimmedUnit.toLowerCase();
-            const baseUnit = UNIT_DISPLAY_OVERRIDES[normalizedKey] || (
-                trimmedUnit.charAt(0).toUpperCase() + trimmedUnit.slice(1).toLowerCase()
-            );
-
-            if (!hasPluralQuantity) {
-                return baseUnit;
-            }
-
-            if (UNIT_PLURAL_OVERRIDES[normalizedKey]) {
-                return UNIT_PLURAL_OVERRIDES[normalizedKey];
-            }
-
-            const lowerBase = baseUnit.toLowerCase();
-            if (lowerBase.endsWith('s')) {
-                return baseUnit;
-            }
-
-            if (/[^aeiou]y$/.test(lowerBase)) {
-                const root = baseUnit.slice(0, -1);
-                return baseUnit === baseUnit.toUpperCase() ? `${root}IES` : `${root}ies`;
-            }
-
-            if (/(s|x|z|ch|sh)$/.test(lowerBase)) {
-                return baseUnit === baseUnit.toUpperCase() ? `${baseUnit}ES` : `${baseUnit}es`;
-            }
-
-            if (baseUnit === baseUnit.toUpperCase() && baseUnit.length <= 3) {
-                return `${baseUnit}s`;
-            }
-
-            return baseUnit === baseUnit.toUpperCase() ? `${baseUnit}S` : `${baseUnit}s`;
-        };
+        const DEFAULT_ISSUING_UNITS = ['Roll', 'Meter', 'Set', 'Pc', 'Assy'];
 
         const uniqueUnits = (list) => {
             const seen = new Set();
@@ -136,36 +57,18 @@
             return ordered;
         };
 
-        const ensurePreferredUnitList = (units) => {
-            const cleaned = uniqueUnits(Array.isArray(units) ? units : []);
-            if (!cleaned.length) {
-                return [...DEFAULT_ISSUING_UNITS];
-            }
-            if (!cleaned.some(unit => unit.toLowerCase() === 'pc/s')) {
-                return ['PC/s', ...cleaned];
-            }
-            return cleaned;
-        };
-
-        const generateManualRowId = () => `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-        const setGlobalUnitOptions = (units = []) => {
-            GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList(units);
-        };
-
-        const resolveUnitOptions = (item = {}, globalUnits = GLOBAL_UNIT_OPTIONS) => {
-            const baseUnits = Array.isArray(globalUnits) && globalUnits.length > 0 ? globalUnits : DEFAULT_ISSUING_UNITS;
+        const resolveUnitOptions = (item = {}) => {
             const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
             for (const list of candidateLists) {
                 if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = uniqueUnits([...baseUnits, ...list]);
+                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
                     if (cleaned.length > 0) {
                         return cleaned;
                     }
                 }
             }
             const fallbackUnits = uniqueUnits([
-                ...baseUnits,
+                ...DEFAULT_ISSUING_UNITS,
                 item.issuingUnit,
                 item.unit,
                 item.defaultUnit
@@ -173,22 +76,18 @@
             if (fallbackUnits.length > 0) {
                 return fallbackUnits;
             }
-            return baseUnits;
+            return DEFAULT_ISSUING_UNITS;
         };
 
-        const getPrimaryIssuingUnit = (item = {}, globalUnits = GLOBAL_UNIT_OPTIONS) => {
+        const getPrimaryIssuingUnit = (item = {}) => {
             if (typeof item.unit === 'string' && item.unit.trim()) {
                 return item.unit.trim();
             }
             if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
                 return item.issuingUnit.trim();
             }
-            const options = resolveUnitOptions(item, globalUnits);
-            if (!options.length) {
-                return 'Unit';
-            }
-            const preferredPc = options.find(option => typeof option === 'string' && option.toLowerCase() === 'pc/s');
-            return preferredPc || options[0];
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'Unit';
         };
 
         // --- UI Components ---
@@ -212,7 +111,7 @@
             const containerClasses = [
                 'bg-white rounded-2xl shadow-2xl w-full',
                 sizeClasses[size],
-                'p-6 relative transform transition-all duration-300 mb-8 max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible'
+                'p-6 relative transform transition-all duration-300 mb-8'
             ].join(' ');
             return (
                 <div
@@ -944,423 +843,7 @@
         };
         
         // Form for creating a new delivery receipt
-        const ManualReceiptPreviewEditor = ({
-            items,
-            onItemChange,
-            onAddLine,
-            onRemoveLine,
-            unitOptions = [],
-            showPrice,
-            focusRef,
-            focusId,
-            meta = {}
-        }) => {
-            const subtotal = useMemo(() => {
-                return (items || []).reduce((sum, item) => {
-                    const quantity = Number(item.dispatchQty ?? item.requestedQty ?? 0);
-                    const price = Number(item.price ?? 0);
-                    if (!Number.isFinite(quantity) || !Number.isFinite(price)) {
-                        return sum;
-                    }
-                    return sum + (quantity * price);
-                }, 0);
-            }, [items]);
-
-            const safeUnitOptions = unitOptions.length ? unitOptions : DEFAULT_ISSUING_UNITS;
-            const columnCount = showPrice ? 5 : 3;
-            const { customerName = '', address = '', poNumber = '', remarks = '' } = meta;
-
-            let fallbackFocusAttached = false;
-
-            return (
-                <div className="border rounded-xl overflow-hidden bg-white shadow-inner flex flex-col max-h-[70vh] print:max-h-none print:overflow-visible">
-                    <div className="px-6 py-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                            <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Paper Preview Editor</h4>
-                            <p className="text-xs text-gray-500">Type manual delivery lines directly inside the receipt layout.</p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={onAddLine}
-                            className="px-3 py-1 text-xs font-semibold rounded-full bg-teal-600 text-white hover:bg-teal-700"
-                        >
-                            ➕ Add Manual Row
-                        </button>
-                    </div>
-                    <div className="p-6 space-y-6 font-serif text-gray-900 flex-1 overflow-y-auto print:overflow-visible print:flex-none print:h-auto">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm uppercase tracking-wide">
-                            <div>
-                                <p className="text-xs text-gray-500">Deliver To</p>
-                                <p className="font-bold text-base">{customerName || 'N/A'}</p>
-                                <p className="text-xs text-gray-600 normal-case">{address || 'N/A'}</p>
-                            </div>
-                            <div className="text-right space-y-1 text-xs text-gray-600">
-                                <div className="flex items-center justify-between">
-                                    <span className="font-semibold">P.O. No.</span>
-                                    <span className="ml-3 text-right">{poNumber || 'N/A'}</span>
-                                </div>
-                                <div className="flex items-start justify-between">
-                                    <span className="font-semibold">Remarks</span>
-                                    <span className="ml-3 text-right max-w-[12rem] normal-case">{remarks || '—'}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <div className="max-h-[26rem] overflow-y-auto print:max-h-none print:overflow-visible">
-                                <table className="w-full border-collapse text-sm table-fixed">
-                                    <thead className="bg-gray-100 text-gray-700 uppercase tracking-wide text-xs">
-                                        <tr>
-                                            <th className="border px-3 py-2 text-center w-20">Qty</th>
-                                            <th className="border px-3 py-2 text-center w-24">Unit</th>
-                                            <th className="border px-3 py-2 text-left w-[45%]">Description</th>
-                                            {showPrice && <th className="border px-3 py-2 text-right w-32">Unit Price</th>}
-                                            {showPrice && <th className="border px-3 py-2 text-right w-32">Total</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(items || []).length ? (items || []).map((item) => {
-                                            const isManual = !!item.isManual;
-                                            const quantityValue = item.dispatchQty ?? item.requestedQty ?? '';
-                                            const priceValue = item.price ?? '';
-                                            const rowTotal = Number(quantityValue || 0) * Number(priceValue || 0);
-                                            const shouldAttachFocus = isManual && ((focusId && item.id === focusId) || (!focusId && !fallbackFocusAttached));
-                                            if (shouldAttachFocus && !focusId) {
-                                                fallbackFocusAttached = true;
-                                            }
-                                            return (
-                                                <tr key={item.id} className={`border-b ${isManual ? 'bg-white' : 'bg-slate-50/70'}`}>
-                                                    <td className="border px-2 py-1 text-center align-top w-20">
-                                                        {isManual ? (
-                                                            <input
-                                                                ref={shouldAttachFocus ? focusRef : null}
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                value={quantityValue}
-                                                                onChange={(e) => onItemChange(item.id, 'dispatchQty', e.target.value)}
-                                                                className="w-full text-center border-0 focus:ring-0 focus:outline-none bg-transparent font-medium"
-                                                                placeholder="0"
-                                                            />
-                                                        ) : (
-                                                            <span>{item.dispatchQty || item.requestedQty}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="border px-2 py-1 text-center align-top">
-                                                        {isManual ? (
-                                                            <select
-                                                                value={item.unit || safeUnitOptions[0]}
-                                                                onChange={(e) => onItemChange(item.id, 'unit', e.target.value)}
-                                                                className="w-full border-0 bg-transparent focus:ring-0 focus:outline-none text-center"
-                                                            >
-                                                                {safeUnitOptions.map(option => (
-                                                                    <option key={option} value={option}>{option}</option>
-                                                                ))}
-                                                            </select>
-                                                        ) : (
-                                                            <span>{formatUnitLabel(item.dispatchQty || item.requestedQty, item.unit || item.issuingUnit || 'Unit')}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="border px-3 py-2 align-top w-[45%]">
-                                                        {isManual ? (
-                                                            <div className="relative">
-                                                                <textarea
-                                                                    value={item.name || ''}
-                                                                    onChange={(e) => onItemChange(item.id, 'name', e.target.value)}
-                                                                    rows={2}
-                                                                    className="w-full resize-none border-0 bg-transparent focus:ring-0 focus:outline-none uppercase leading-snug placeholder:normal-case break-words whitespace-pre-wrap max-h-32 overflow-y-auto"
-                                                                    placeholder="Item description"
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => onRemoveLine(item.id)}
-                                                                    className="absolute -top-3 -right-3 text-xs text-gray-400 hover:text-red-500"
-                                                                    title="Remove manual row"
-                                                                >
-                                                                    ✕
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="uppercase leading-snug block break-words whitespace-pre-wrap">
-                                                                {item.name}
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                    {showPrice && (
-                                                        <td className="border px-3 py-2 text-right align-top">
-                                                            {isManual ? (
-                                                                <input
-                                                                    type="text"
-                                                                    inputMode="decimal"
-                                                                    value={priceValue}
-                                                                    onChange={(e) => onItemChange(item.id, 'price', e.target.value)}
-                                                                    className="w-full text-right border-0 bg-transparent focus:ring-0 focus:outline-none"
-                                                                    placeholder="0.00"
-                                                                />
-                                                            ) : (
-                                                                <span>{formatCurrency(item.price)}</span>
-                                                            )}
-                                                        </td>
-                                                    )}
-                                                    {showPrice && (
-                                                        <td className="border px-3 py-2 text-right align-top">
-                                                            <span>{formatCurrency(rowTotal)}</span>
-                                                        </td>
-                                                    )}
-                                                </tr>
-                                            );
-                                        }) : (
-                                            <tr>
-                                                <td colSpan={columnCount} className="border px-3 py-6 text-center text-gray-400 text-xs uppercase tracking-widest">
-                                                    No items yet — use the button above to add a manual row.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        {showPrice && (
-                            <div className="flex justify-end">
-                                <div className="w-full max-w-xs space-y-2 text-sm uppercase tracking-wide">
-                                    <div className="flex items-center justify-between">
-                                        <span className="font-semibold">Subtotal</span>
-                                        <span>{formatCurrency(subtotal)}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-t pt-2 font-bold">
-                                        <span>Total</span>
-                                        <span>{formatCurrency(subtotal)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        const ManualReceiptForm = ({
-            sites,
-            unitChoices = GLOBAL_UNIT_OPTIONS,
-            onFinalize,
-            onClose,
-            setNotification,
-            initialData = null,
-            onDraftChange = () => {}
-        }) => {
-            const [siteId, setSiteId] = useState(initialData?.siteId || '');
-            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
-            const [address, setAddress] = useState(initialData?.address || '');
-            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
-            const [remarks, setRemarks] = useState(initialData?.remarks || '');
-            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
-
-            const manualUnitChoices = useMemo(() => ensurePreferredUnitList(unitChoices), [unitChoices]);
-            const manualDefaultUnit = manualUnitChoices[0] || 'PC/s';
-            const manualPreviewFocusRef = useRef(null);
-            const [manualFocusId, setManualFocusId] = useState(null);
-
-            const buildManualItem = useCallback((item = {}) => ({
-                id: item.id || generateManualRowId(),
-                dispatchQty: item.dispatchQty ?? item.requestedQty ?? '',
-                unit: item.unit || manualDefaultUnit,
-                name: item.name || '',
-                price: item.price ?? '',
-                isManual: true
-            }), [manualDefaultUnit]);
-
-            const [manualItems, setManualItems] = useState(() => {
-                if (initialData?.items?.length) {
-                    return initialData.items.map(buildManualItem);
-                }
-                return [buildManualItem()];
-            });
-
-            useEffect(() => {
-                if (initialData) {
-                    setSiteId(initialData.siteId || '');
-                    setCustomerName(initialData.customerName || '');
-                    setAddress(initialData.address || '');
-                    setPoNumber(initialData.poNumber || '');
-                    setRemarks(initialData.remarks || '');
-                    setShowPrice(initialData.showPrice ?? true);
-                    if (initialData.items && initialData.items.length) {
-                        setManualItems(initialData.items.map(buildManualItem));
-                    } else {
-                        setManualItems([buildManualItem()]);
-                    }
-                } else {
-                    setSiteId('');
-                    setCustomerName('');
-                    setAddress('');
-                    setPoNumber('');
-                    setRemarks('');
-                    setShowPrice(true);
-                    setManualItems([buildManualItem()]);
-                }
-                setManualFocusId(null);
-            }, [initialData, buildManualItem]);
-
-            useEffect(() => {
-                setManualItems(prev => prev.map(item => {
-                    if (!item.unit || !manualUnitChoices.length) {
-                        return { ...item, unit: manualDefaultUnit };
-                    }
-                    const hasMatch = manualUnitChoices.some(option => option.toLowerCase() === item.unit.toLowerCase());
-                    return hasMatch ? item : { ...item, unit: manualDefaultUnit };
-                }));
-            }, [manualUnitChoices, manualDefaultUnit]);
-
-            useEffect(() => {
-                if (manualFocusId && manualPreviewFocusRef.current) {
-                    manualPreviewFocusRef.current.focus();
-                    setManualFocusId(null);
-                }
-            }, [manualFocusId]);
-
-            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
-
-            const handleManualItemChange = (id, field, rawValue) => {
-                setManualItems(prev => prev.map(item => {
-                    if (item.id !== id) return item;
-                    if (field === 'dispatchQty') {
-                        return { ...item, dispatchQty: (rawValue || '').replace(/[^0-9.]/g, '') };
-                    }
-                    if (field === 'price') {
-                        return { ...item, price: (rawValue || '').replace(/[^0-9.]/g, '') };
-                    }
-                    if (field === 'name') {
-                        return { ...item, name: (rawValue || '').toUpperCase() };
-                    }
-                    if (field === 'unit') {
-                        return { ...item, unit: rawValue };
-                    }
-                    return item;
-                }));
-            };
-
-            const handleAddManualRow = () => {
-                const newRow = buildManualItem({ dispatchQty: '', unit: manualDefaultUnit, name: '', price: '' });
-                setManualItems(prev => [...prev, newRow]);
-                setManualFocusId(newRow.id);
-            };
-
-            const handleRemoveManualRow = (id) => {
-                setManualItems(prev => {
-                    const updated = prev.filter(item => item.id !== id);
-                    if (updated.length === 0) {
-                        const replacement = buildManualItem({ dispatchQty: '', unit: manualDefaultUnit, name: '', price: '' });
-                        setManualFocusId(replacement.id);
-                        return [replacement];
-                    }
-                    return updated;
-                });
-            };
-
-            const handleFinalize = () => {
-                const manualWithQtyButNoName = manualItems.some(item => Number(item.dispatchQty || 0) > 0 && !(item.name && item.name.trim()));
-                if (manualWithQtyButNoName) {
-                    setNotification({ type: 'error', message: 'Please add a description for each manual item with a quantity.' });
-                    return;
-                }
-
-                const manualWithNameButNoQty = manualItems.some(item => (item.name && item.name.trim()) && !(Number(item.dispatchQty || 0) > 0));
-                if (manualWithNameButNoQty) {
-                    setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for each manual item.' });
-                    return;
-                }
-
-                if (!siteId) {
-                    setNotification({ type: 'error', message: 'Please select a site.' });
-                    return;
-                }
-
-                const cleanedItems = manualItems.map(item => {
-                    const quantity = Number(item.dispatchQty || 0);
-                    const safeQuantity = Number.isFinite(quantity) && quantity >= 0 ? quantity : 0;
-                    const normalizedPriceRaw = Number(item.price ?? 0);
-                    const normalizedPrice = Number.isFinite(normalizedPriceRaw) && normalizedPriceRaw >= 0 ? normalizedPriceRaw : 0;
-                    const normalizedUnit = (item.unit && item.unit.trim()) || manualDefaultUnit;
-                    return {
-                        ...item,
-                        dispatchQty: safeQuantity,
-                        unit: normalizedUnit,
-                        price: normalizedPrice,
-                        name: (item.name || '').trim().toUpperCase(),
-                        isManual: true
-                    };
-                });
-
-                const finalItems = cleanedItems.filter(item => item.dispatchQty > 0 && item.name);
-
-                if (finalItems.length === 0) {
-                    setNotification({ type: 'error', message: 'Please add at least one manual line with quantity greater than zero.' });
-                    return;
-                }
-
-                const receiptData = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: finalItems,
-                    showPrice,
-                    origin: 'manual'
-                };
-
-                onDraftChange(receiptData);
-                onFinalize(receiptData);
-            };
-
-            return (
-                <Modal onClose={onClose} size="6xl">
-                    <div className="space-y-6">
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
-                            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                <input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} />
-                                Show prices on preview
-                            </label>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg uppercase">
-                                <option value="">Select Site</option>
-                                {sites.map(site => (
-                                    <option key={site.id} value={site.id}>{site.name}</option>
-                                ))}
-                            </select>
-                            <input type="text" value={customerName} onChange={handleUppercaseChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Customer / Identifier" />
-                            <input type="text" value={address} onChange={handleUppercaseChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Address" />
-                            <input type="text" value={poNumber} onChange={handleUppercaseChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="P.O. Number" />
-                            <div className="md:col-span-2 lg:col-span-4">
-                                <input type="text" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Remarks" />
-                            </div>
-                        </div>
-
-                        <div>
-                            <ManualReceiptPreviewEditor
-                                items={manualItems}
-                                onItemChange={handleManualItemChange}
-                                onAddLine={handleAddManualRow}
-                                onRemoveLine={handleRemoveManualRow}
-                                unitOptions={manualUnitChoices}
-                                showPrice={showPrice}
-                                focusRef={manualPreviewFocusRef}
-                                focusId={manualFocusId}
-                                meta={{ customerName, address, poNumber, remarks }}
-                            />
-                        </div>
-
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                            <button type="button" onClick={handleFinalize} className="px-6 py-2 text-white bg-teal-600 rounded-full hover:bg-teal-700">Preview Receipt</button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-
-        const DeliveryReceiptForm = ({ inventory, sites, unitChoices = GLOBAL_UNIT_OPTIONS, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
             const [customerName, setCustomerName] = useState(initialData?.customerName || '');
             const [address, setAddress] = useState(initialData?.address || '');
@@ -1370,37 +853,6 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
             const [selectionState, setSelectionState] = useState({});
-            const manualUnitChoices = useMemo(() => ensurePreferredUnitList(unitChoices), [unitChoices]);
-            const manualDefaultUnit = manualUnitChoices[0] || 'PC/s';
-            const [manualPreviewActive, setManualPreviewActive] = useState(() => initialData?.items?.some(item => item.isManual) || false);
-            const [manualFocusId, setManualFocusId] = useState(null);
-            const manualSectionRef = useRef(null);
-            const manualPreviewFocusRef = useRef(null);
-            const allowManualPreview = false; // Manual receipt editor now lives in a dedicated composer
-
-            const createManualDraftItem = useCallback(() => ({
-                id: generateManualRowId(),
-                name: '',
-                dispatchQty: '',
-                unit: manualDefaultUnit,
-                price: '',
-                isManual: true
-            }), [manualDefaultUnit]);
-
-            const ensureManualLine = useCallback(() => {
-                let focusTarget = null;
-                setCart(prev => {
-                    const existingManual = prev.find(item => item.isManual);
-                    if (existingManual) {
-                        focusTarget = existingManual.id;
-                        return prev;
-                    }
-                    const draft = createManualDraftItem();
-                    focusTarget = draft.id;
-                    return [...prev, draft];
-                });
-                return focusTarget;
-            }, [createManualDraftItem]);
 
             useEffect(() => {
                 if (initialData) {
@@ -1411,7 +863,6 @@
                     setRemarks(initialData.remarks || '');
                     setCart(initialData.items || []);
                     setShowPrice(initialData.showPrice ?? true);
-                    setManualPreviewActive(allowManualPreview && (initialData.items?.some(item => item.isManual) || false));
                 } else {
                     setSiteId('');
                     setCustomerName('');
@@ -1420,48 +871,9 @@
                     setRemarks('');
                     setCart([]);
                     setShowPrice(true);
-                    setManualPreviewActive(false);
                 }
                 setSelectionState({});
-                setManualFocusId(null);
-            }, [initialData, allowManualPreview]);
-
-            useEffect(() => {
-                if (!allowManualPreview) return;
-                if (!manualPreviewActive && cart.some(item => item.isManual)) {
-                    setManualPreviewActive(true);
-                }
-            }, [cart, manualPreviewActive, allowManualPreview]);
-
-            useEffect(() => {
-                if (!allowManualPreview) return;
-                setCart(prev => {
-                    let hasChange = false;
-                    const updated = prev.map(item => {
-                        if (!item.isManual) return item;
-                        if (item.unit && manualUnitChoices.some(unit => unit.toLowerCase() === String(item.unit).toLowerCase())) {
-                            return item;
-                        }
-                        hasChange = true;
-                        return { ...item, unit: manualDefaultUnit };
-                    });
-                    return hasChange ? updated : prev;
-                });
-            }, [manualUnitChoices, manualDefaultUnit, allowManualPreview]);
-
-            useEffect(() => {
-                if (!allowManualPreview) return;
-                if (manualPreviewActive && manualPreviewFocusRef.current) {
-                    manualPreviewFocusRef.current.focus();
-                    if (typeof manualPreviewFocusRef.current.select === 'function') {
-                        manualPreviewFocusRef.current.select();
-                    }
-                    if (manualFocusId) {
-                        const timer = setTimeout(() => setManualFocusId(null), 180);
-                        return () => clearTimeout(timer);
-                    }
-                }
-            }, [manualPreviewActive, manualFocusId, cart.length, allowManualPreview]);
+            }, [initialData]);
 
             const filteredInventory = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
@@ -1476,7 +888,7 @@
             const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const getSelectionForItem = (item) => {
-                const options = resolveUnitOptions(item, unitChoices);
+                const options = resolveUnitOptions(item);
                 const defaults = { qty: 1, unit: options[0] };
                 return { ...defaults, ...(selectionState[item.id] || {}) };
             };
@@ -1489,46 +901,6 @@
                         [field]: field === 'qty' ? value.replace(/[^0-9.]/g, '') : value
                     }
                 }));
-            };
-
-            const handleManualPreviewItemChange = (id, field, rawValue) => {
-                setCart(prev => prev.map(item => {
-                    if (item.id !== id || !item.isManual) return item;
-                    if (field === 'dispatchQty') {
-                        const sanitized = (rawValue || '').replace(/[^0-9.]/g, '');
-                        return { ...item, dispatchQty: sanitized };
-                    }
-                    if (field === 'price') {
-                        const sanitized = (rawValue || '').replace(/[^0-9.]/g, '');
-                        return { ...item, price: sanitized };
-                    }
-                    if (field === 'name') {
-                        return { ...item, name: (rawValue || '').toUpperCase() };
-                    }
-                    if (field === 'unit') {
-                        return { ...item, unit: rawValue };
-                    }
-                    return item;
-                }));
-            };
-
-            const handleAddManualPreviewRow = () => {
-                const newRow = createManualDraftItem();
-                setCart(prev => [...prev, newRow]);
-                setManualPreviewActive(true);
-                setManualFocusId(newRow.id);
-            };
-
-            const handleRemoveManualPreviewRow = (id) => {
-                setCart(prev => prev.filter(item => item.id !== id));
-            };
-
-            const handleOpenManualPreview = () => {
-                if (!allowManualPreview) return;
-                const focusId = ensureManualLine();
-                setManualPreviewActive(true);
-                setManualFocusId(focusId || null);
-                manualSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             };
 
             const addToCart = (item) => {
@@ -1551,7 +923,7 @@
                         return prev;
                     }
 
-                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item, unitChoices) }];
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item) }];
                 });
             };
 
@@ -1573,43 +945,16 @@
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
             const handleFinalize = () => {
-                if (allowManualPreview) {
-                    const manualWithQtyButNoName = cart.some(item => item.isManual && Number(item.dispatchQty || 0) > 0 && !(item.name && item.name.trim()));
-                    if (manualWithQtyButNoName) {
-                        setNotification({ type: 'error', message: 'Please add a description for each manual item with a quantity.' });
-                        return;
-                    }
-
-                    const manualWithNameButNoQty = cart.some(item => item.isManual && (item.name && item.name.trim()) && !(Number(item.dispatchQty || 0) > 0));
-                    if (manualWithNameButNoQty) {
-                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero for each manual item.' });
-                        return;
-                    }
-                }
-
-                const cleanedCart = cart.map(item => {
-                    const rawQty = item.dispatchQty !== undefined && item.dispatchQty !== '' ? item.dispatchQty : (item.requestedQty ?? 0);
-                    const quantity = Number(rawQty);
-                    const safeQuantity = Number.isFinite(quantity) ? quantity : 0;
-                    const trimmedName = (item.name || '').trim();
-                    const priceValue = Number(item.price ?? 0);
-                    const normalizedPrice = Number.isFinite(priceValue) && priceValue >= 0 ? priceValue : 0;
-                    const normalizedUnit = (item.unit && item.unit.trim()) || getPrimaryIssuingUnit(item, unitChoices) || manualDefaultUnit;
-                    return {
-                        ...item,
-                        name: trimmedName || item.name || '',
-                        dispatchQty: safeQuantity,
-                        unit: normalizedUnit,
-                        price: normalizedPrice
-                    };
-                });
-
-                const finalCart = cleanedCart.filter(item => Number.isFinite(item.dispatchQty) && item.dispatchQty > 0 && (item.name && item.name.trim()));
-
+                const finalCart = cart.filter(i => i.dispatchQty > 0);
                 if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
-                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item with a quantity greater than zero to the receipt.' }); return; }
+                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
 
-                const receiptData = { siteId, customerName, address, poNumber, remarks, items: finalCart, showPrice };
+                const normalizedCart = finalCart.map(item => ({
+                    ...item,
+                    unit: item.unit || getPrimaryIssuingUnit(item)
+                }));
+
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
                 onDraftChange(receiptData);
                 onFinalize(receiptData);
             }
@@ -1654,7 +999,7 @@
                                     <tbody>
                                         {filteredInventory.map(item => {
                                             const selection = getSelectionForItem(item);
-                                            const unitOptions = resolveUnitOptions(item, unitChoices);
+                                            const unitOptions = resolveUnitOptions(item);
                                             const inCart = cart.some(c => c.id === item.id);
                                             return (
                                                 <tr key={item.id} className="border-b">
@@ -1705,42 +1050,8 @@
                         </div>
 
                         {/* Receipt Cart Column */}
-                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg" ref={manualSectionRef}>
-                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
-                                    <p className="text-xs text-gray-500">Review the list before generating the delivery receipt.</p>
-                                </div>
-                                {allowManualPreview && (
-                                    <button
-                                        type="button"
-                                        onClick={handleOpenManualPreview}
-                                        className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
-                                    >
-                                        {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
-                                    </button>
-                                )}
-                            </div>
-                            {allowManualPreview && (
-                                manualPreviewActive ? (
-                                    <ManualReceiptPreviewEditor
-                                        items={cart}
-                                        onItemChange={handleManualPreviewItemChange}
-                                        onAddLine={handleAddManualPreviewRow}
-                                        onRemoveLine={handleRemoveManualPreviewRow}
-                                        unitOptions={manualUnitChoices}
-                                        showPrice={showPrice}
-                                        focusRef={manualPreviewFocusRef}
-                                        focusId={manualFocusId}
-                                        meta={{ customerName, address, poNumber, remarks }}
-                                    />
-                                ) : (
-                                    <div className="p-4 bg-white border rounded-lg text-xs text-gray-600 leading-relaxed">
-                                        <p className="font-semibold text-gray-700">Manual delivery receipt needed?</p>
-                                        <p className="mt-1">Select “➕ Manual DR Item” to open the paper-style editor and type details directly onto the receipt.</p>
-                                    </div>
-                                )
-                            )}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                            <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
@@ -1751,7 +1062,7 @@
                                                 <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
                                                 <td className="p-2">
                                                     <select value={item.unit} onChange={(e) => updateCartUnit(item.id, e.target.value)} className="w-full px-2 py-1 border rounded-md">
-                                                        {resolveUnitOptions(item, unitChoices).map(option => (
+                                                        {resolveUnitOptions(item).map(option => (
                                                             <option key={option} value={option}>{option}</option>
                                                         ))}
                                                     </select>
@@ -1790,23 +1101,7 @@
                 return baseDocs.filter(doc => {
                     const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
                     const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
-                    const site = (doc.siteName || doc.site || '').toLowerCase();
-                    const dateString = (() => {
-                        try {
-                            if (doc.createdAt?.toDate) {
-                                return doc.createdAt.toDate().toLocaleDateString().toLowerCase();
-                            }
-                        } catch (error) {
-                            return '';
-                        }
-                        return '';
-                    })();
-                    return (
-                        number.includes(term) ||
-                        identifier.includes(term) ||
-                        site.includes(term) ||
-                        dateString.includes(term)
-                    );
+                    return number.includes(term) || identifier.includes(term);
                 });
             }, [documents, searchTerm, type]);
 
@@ -1863,7 +1158,7 @@
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full px-3 py-2 border rounded-lg"
-                                        placeholder="Search receipts by number, identifier, site, or date..."
+                                        placeholder="Search receipts by number or identifier..."
                                     />
                                 )}
                                 <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
@@ -2034,7 +1329,7 @@
                             {receipt.items.map(item => (
                                 <tr key={item.id} className="border-b">
                                     <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">{formatUnitLabel(item.dispatchQty || item.requestedQty, item.unit || item.issuingUnit || 'Unit')}</td>
+                                    <td className="p-2 border">{item.unit || item.issuingUnit || 'PCS'}</td>
                                     <td className="p-2 border">{item.name}</td>
                                     {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
                                     {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
@@ -2426,20 +1721,14 @@
             const [isLoading, setIsLoading] = useState(true);
             const [modal, setModal] = useState(null);
             const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null);
+            const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
             const [receiptDraft, setReceiptDraft] = useState(null);
-            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
-            const [pendingReceiptSource, setPendingReceiptSource] = useState(null);
-
+            
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-            useEffect(() => {
-                setGlobalUnitOptions(settings.unitOptions);
-            }, [settings.unitOptions]);
 
             // --- Firebase Initialization and Auth Effect ---
             useEffect(() => {
@@ -2851,29 +2140,19 @@
                 setModal(type);
             };
 
-            const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
+            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
                 setPendingReceipt(null);
-                setPendingReceiptSource(null);
                 if (!preserveReceiptDraft) {
                     setReceiptDraft(null);
-                }
-                if (!preserveManualDraft) {
-                    setManualReceiptDraft(null);
                 }
             };
 
             const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
-                const origin = pendingReceiptSource;
                 setPendingReceipt(null);
-                if (origin === 'manual') {
-                    setModal('manual_receipt');
-                } else {
-                    setModal('receipt');
-                }
-                setPendingReceiptSource(null);
+                setModal('receipt');
             };
 
             // --- Render Logic ---
@@ -2977,23 +2256,11 @@
                         <DeliveryReceiptForm
                             inventory={inventory}
                             sites={sites}
-                            unitChoices={settings.unitOptions}
                             onFinalize={handlePreviewAndFinalize}
                             onClose={closeReceiptComposer}
                             setNotification={setNotification}
                             initialData={receiptDraft}
                             onDraftChange={setReceiptDraft}
-                        />
-                    )}
-                    {modal === 'manual_receipt' && (
-                        <ManualReceiptForm
-                            sites={sites}
-                            unitChoices={settings.unitOptions}
-                            onFinalize={handlePreviewAndFinalize}
-                            onClose={closeModal}
-                            setNotification={setNotification}
-                            initialData={manualReceiptDraft}
-                            onDraftChange={setManualReceiptDraft}
                         />
                     )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
