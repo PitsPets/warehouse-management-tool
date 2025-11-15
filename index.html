@@ -30,7 +30,7 @@
     <div id="print-area" class="hidden print:block"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
         // Destructure Firebase functions from the global window object
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
 
@@ -347,24 +347,79 @@
         };
 
         // Form for adding or editing an inventory item
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
+        const ItemForm = ({ currentItem, onSave, onClose, setNotification, unitOptions = GLOBAL_UNIT_OPTIONS }) => {
+            const sanitizedUnitOptions = useMemo(() => uniqueUnits([...(unitOptions || []), 'PC/s']), [unitOptions]);
+            const preferredUnit = getPreferredUnit(sanitizedUnitOptions);
+
+            const defaultItemState = () => ({
+                name: '',
+                brand: '',
+                qty: '0',
+                location: '',
+                sku: '',
+                price: '0.00',
+                reorderLevel: '10',
+                unit: preferredUnit,
+                issuingUnit: preferredUnit,
+                issuingUnits: [preferredUnit]
+            });
+
+            const [item, setItem] = useState(defaultItemState);
             const [isSaving, setIsSaving] = useState(false);
+            const [isCustomUnit, setIsCustomUnit] = useState(false);
 
             useEffect(() => {
                 if (currentItem) {
-                    setItem(currentItem);
+                    const existingUnit = currentItem.unit || currentItem.issuingUnit || preferredUnit;
+                    const normalizedIssuingUnits = Array.isArray(currentItem.issuingUnits) && currentItem.issuingUnits.length > 0
+                        ? uniqueUnits([existingUnit, ...currentItem.issuingUnits])
+                        : uniqueUnits([existingUnit]);
+                    setItem({
+                        ...currentItem,
+                        unit: existingUnit,
+                        issuingUnit: existingUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: String(currentItem.qty ?? 0),
+                        price: String(currentItem.price ?? 0),
+                        reorderLevel: String(currentItem.reorderLevel ?? 0)
+                    });
+                    setIsCustomUnit(!sanitizedUnitOptions.some(option => option.toLowerCase() === existingUnit.toLowerCase()));
                 } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
+                    setItem({
+                        ...defaultItemState(),
+                        sku: `SKU-${Date.now()}`
+                    });
+                    setIsCustomUnit(false);
                 }
-            }, [currentItem]);
+            }, [currentItem, preferredUnit, sanitizedUnitOptions]);
 
             const handleChange = (e) => {
                 const { name, value } = e.target;
                 const uppercaseFields = ['sku', 'name', 'brand', 'location'];
                 setItem(prev => ({ ...prev, [name]: uppercaseFields.includes(name) ? value.toUpperCase() : value }));
             };
-            
+
+            const handleUnitSelect = (e) => {
+                const { value } = e.target;
+                if (value === '__custom__') {
+                    setIsCustomUnit(true);
+                    setItem(prev => ({ ...prev, unit: '', issuingUnit: '' }));
+                    return;
+                }
+                setIsCustomUnit(false);
+                setItem(prev => ({
+                    ...prev,
+                    unit: value,
+                    issuingUnit: value,
+                    issuingUnits: uniqueUnits([value, ...(prev.issuingUnits || [])])
+                }));
+            };
+
+            const handleCustomUnitChange = (e) => {
+                const value = e.target.value.toUpperCase();
+                setItem(prev => ({ ...prev, unit: value, issuingUnit: value }));
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!item.name || !item.sku) {
@@ -372,8 +427,26 @@
                     return;
                 }
                 setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
+                try {
+                    const rawUnit = item.unit && item.unit.trim() ? item.unit.trim() : 'PC/s';
+                    const unitKey = rawUnit.toLowerCase();
+                    const normalizedUnit = unitKey === 'pc/s'
+                        ? 'PC/s'
+                        : (UNIT_DISPLAY_OVERRIDES[unitKey] || (rawUnit.charAt(0).toUpperCase() + rawUnit.slice(1)));
+                    const issuingUnitsList = Array.isArray(item.issuingUnits) ? item.issuingUnits : [];
+                    const normalizedIssuingUnits = uniqueUnits([normalizedUnit, ...issuingUnitsList]);
+                    await onSave({
+                        ...item,
+                        unit: normalizedUnit,
+                        issuingUnit: normalizedUnit,
+                        issuingUnits: normalizedIssuingUnits,
+                        qty: Number(item.qty || 0),
+                        price: parseFloat(item.price || 0),
+                        reorderLevel: Number(item.reorderLevel || 0)
+                    });
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
             return (
@@ -388,6 +461,31 @@
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
                         <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Unit of Measure</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <select
+                                value={isCustomUnit ? '__custom__' : (item.unit || preferredUnit)}
+                                onChange={handleUnitSelect}
+                                className="w-full sm:w-1/2 px-3 py-2 border rounded-lg"
+                            >
+                                {sanitizedUnitOptions.map(option => (
+                                    <option key={option} value={option}>{option}</option>
+                                ))}
+                                <option value="__custom__">Custom...</option>
+                            </select>
+                            {isCustomUnit && (
+                                <input
+                                    type="text"
+                                    value={item.unit || ''}
+                                    onChange={handleCustomUnitChange}
+                                    className="w-full px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="Enter custom unit"
+                                />
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Default unit is PC/s. Use settings to manage the dropdown options or enter a custom value.</p>
                     </div>
                     { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
                     <div className="flex justify-end gap-4 pt-4">
@@ -467,14 +565,125 @@
         
         // Form for changing application settings (admin pass, reorder level)
         const SettingsForm = ({ settings, onSave, onClose }) => {
-            const [localSettings, setLocalSettings] = useState(settings);
+            const [localSettings, setLocalSettings] = useState(() => ({
+                ...settings,
+                unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+            }));
             const [isSaving, setIsSaving] = useState(false);
+            const [unitDraft, setUnitDraft] = useState('');
+            const [editingIndex, setEditingIndex] = useState(null);
+
+            useEffect(() => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    ...settings,
+                    unitOptions: ensurePreferredUnitList(settings.unitOptions?.length ? settings.unitOptions : GLOBAL_UNIT_OPTIONS)
+                }));
+            }, [settings]);
+
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(localSettings.unitOptions), [localSettings.unitOptions]);
+
+            const formatUnitForStorage = (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) return '';
+                const normalizedKey = trimmed.toLowerCase();
+                const canonicalMap = {
+                    'pc/s': 'PC/s',
+                    pcs: 'PC/s',
+                    pc: 'PC/s',
+                    'roll/s': 'Roll/s',
+                    rolls: 'Roll/s',
+                    roll: 'Roll/s',
+                    'meter/s': 'Meter/s',
+                    meters: 'Meter/s',
+                    meter: 'Meter/s',
+                    'set/s': 'Set/s',
+                    sets: 'Set/s',
+                    set: 'Set/s'
+                };
+                if (canonicalMap[normalizedKey]) {
+                    return canonicalMap[normalizedKey];
+                }
+                if (normalizedKey === 'assy') return 'Assy';
+                if (normalizedKey === 'box') return 'Box';
+                if (normalizedKey === 'length') return 'Length';
+                if (trimmed.includes('/')) {
+                    return trimmed
+                        .split('/')
+                        .map((part, index) => index === 0
+                            ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+                            : part.toLowerCase())
+                        .join('/');
+                }
+                if (trimmed.length <= 4) {
+                    return trimmed.toUpperCase();
+                }
+                return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+            };
 
             const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
+            const handleUnitSubmit = (e) => {
+                e.preventDefault();
+                const formatted = formatUnitForStorage(unitDraft);
+                if (!formatted) {
+                    return;
+                }
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? [...prev.unitOptions] : [];
+                    if (editingIndex !== null) {
+                        current[editingIndex] = formatted;
+                    } else if (!current.some(unit => unit.toLowerCase() === formatted.toLowerCase())) {
+                        current.push(formatted);
+                    }
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                setUnitDraft('');
+                setEditingIndex(null);
+            };
+
+            const handleEditUnit = (index) => {
+                setEditingIndex(index);
+                setUnitDraft(normalizedUnits[index] || '');
+            };
+
+            const handleDeleteUnit = (index) => {
+                setLocalSettings(prev => {
+                    const current = Array.isArray(prev.unitOptions) ? prev.unitOptions.filter((_, idx) => idx !== index) : [];
+                    return {
+                        ...prev,
+                        unitOptions: ensurePreferredUnitList(current)
+                    };
+                });
+                if (editingIndex === index) {
+                    setEditingIndex(null);
+                    setUnitDraft('');
+                }
+            };
+
+            const handleCancelUnitEdit = () => {
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
+            const handleResetUnits = () => {
+                setLocalSettings(prev => ({
+                    ...prev,
+                    unitOptions: [...DEFAULT_ISSUING_UNITS]
+                }));
+                setEditingIndex(null);
+                setUnitDraft('');
+            };
+
             const handleSave = async () => {
                 setIsSaving(true);
-                await onSave(localSettings);
+                await onSave({
+                    ...localSettings,
+                    unitOptions: ensurePreferredUnitList(localSettings.unitOptions)
+                });
                 setIsSaving(false);
             };
 
@@ -482,19 +691,64 @@
                 <Modal onClose={onClose} size="lg">
                     <div className="space-y-6">
                         <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                        <div>
-                           <label className="block text-sm font-medium">Admin Password</label>
-                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Admin Password</label>
+                                <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Default Reorder Level</label>
+                                <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                            </div>
                         </div>
-                        <div>
-                           <label className="block text-sm font-medium">Default Reorder Level</label>
-                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
+                        <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                            <div className="flex items-center justify-between gap-2">
+                                <h3 className="font-bold text-gray-800">Units of Measure</h3>
+                                <button type="button" onClick={handleResetUnits} className="text-xs font-semibold text-indigo-600 hover:text-indigo-500">Reset to defaults</button>
+                            </div>
+                            <p className="text-xs text-gray-500">Customize the dropdown values used when selecting units. PC/s will always be available.</p>
+                            <form onSubmit={handleUnitSubmit} className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    type="text"
+                                    value={unitDraft}
+                                    onChange={(e) => setUnitDraft(e.target.value)}
+                                    className="flex-1 px-3 py-2 border rounded-lg uppercase"
+                                    placeholder="e.g., BOX"
+                                />
+                                <div className="flex gap-2">
+                                    {editingIndex !== null && (
+                                        <button type="button" onClick={handleCancelUnitEdit} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Cancel</button>
+                                    )}
+                                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">
+                                        {editingIndex !== null ? 'Save Unit' : 'Add Unit'}
+                                    </button>
+                                </div>
+                            </form>
+                            <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {normalizedUnits.map((unit, index) => (
+                                    <li key={unit} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2 text-sm">
+                                        <span className="font-medium text-gray-700">{unit}</span>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => handleEditUnit(index)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteUnit(index)}
+                                                className="text-xs text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline"
+                                                disabled={normalizedUnits.length <= 1}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                                {normalizedUnits.length === 0 && <li className="text-xs text-gray-500">No units configured.</li>}
+                            </ul>
                         </div>
                         <div className="flex justify-end gap-4 pt-4 border-t">
                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
+                            <button type="button" onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
                                 {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
                                 {isSaving ? 'Saving...' : 'Save Settings'}
                             </button>
@@ -710,7 +964,19 @@
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        handleOpenManualPreview();
+                                        manualSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }}
+                                    className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                                >
+                                    {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
+                                </button>
+                            </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
                                      <option value="">-- Select Site --</option>
@@ -1093,7 +1359,7 @@
 
             if (isPreview) {
                  return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
+                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
                          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
                              <div className="p-8">
                                  {content}
@@ -1444,7 +1710,7 @@
             const [deliveryReceipts, setDeliveryReceipts] = useState([]);
             const [userOrders, setUserOrders] = useState([]);
             const [restockCart, setRestockCart] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0 });
+            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0, unitOptions: [...DEFAULT_ISSUING_UNITS] });
             const [drTemplate, setDrTemplate] = useState({ 
                 title: 'DELIVERY RECEIPT', 
                 logoUrl: '', 
@@ -1520,7 +1786,22 @@
                 const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err));
                 const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err));
                 const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("User Orders snapshot error:", err));
-                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } }, err => console.error("Settings snapshot error:", err));
+                const unsubSettings = onSnapshot(
+                    doc(db, `${basePath}/settings/general`),
+                    (d) => {
+                        if (d.exists()) {
+                            const data = d.data();
+                            const normalizedUnits = ensurePreferredUnitList(data.unitOptions);
+                            setSettings(prev => ({
+                                ...prev,
+                                ...data,
+                                unitOptions: normalizedUnits
+                            }));
+                            setGlobalUnitOptions(normalizedUnits);
+                        }
+                    },
+                    err => console.error("Settings snapshot error:", err)
+                );
                 const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } }, err => console.error("DR Template snapshot error:", err));
 
                 setIsLoading(false);
@@ -1636,23 +1917,27 @@
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const inventoryItems = (receiptData.items || []).filter(item => !item.isManual);
+                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
                         for(let i = 0; i < itemDocs.length; i++) {
                             const invItemDoc = itemDocs[i];
-                            const requestedItem = receiptData.items[i];
-                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
-                             }
+                            const requestedItem = inventoryItems[i];
+                            if (!invItemDoc.exists()) {
+                                throw new Error(`Inventory item "${requestedItem?.name || requestedItem?.id}" no longer exists.`);
+                            }
+                            if (invItemDoc.data().qty < requestedItem.dispatchQty) {
+                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                            }
                         }
-                        
+
                         const newDrNumber = siteDoc.data().lastDrNumber + 1;
                         const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
                         finalDrNumber = drNumberString;
 
-                        for (let i = 0; i < receiptData.items.length; i++) {
-                            transaction.update(itemRefs[i], { qty: increment(-receiptData.items[i].dispatchQty) });
+                        for (let i = 0; i < inventoryItems.length; i++) {
+                            transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
                         }
 
                         transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
@@ -1670,18 +1955,20 @@
             };
             
             const handlePreviewAndFinalize = (receiptData) => {
-                const selectedSite = sites.find(s => s.id === receiptData.siteId);
+                const { origin, ...payload } = receiptData || {};
+                const selectedSite = sites.find(s => s.id === payload.siteId);
                 const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
                 const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
 
                 const dataForPreview = {
-                    ...receiptData,
+                    ...payload,
                     drNumber: drNumberString,
                     siteName: selectedSite?.name || 'N/A',
                     createdAt: { toDate: () => new Date() } // Mock server timestamp
                 };
-                setPendingReceipt(dataForPreview); // Store the data
-                setModal('receipt_confirm_and_preview'); // Open the confirmation preview modal
+                setPendingReceiptSource(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceipt(dataForPreview);
+                setModal('receipt_confirm_and_preview');
             };
 
             const handleVoidReceipt = async (receipt) => {
@@ -1802,12 +2089,19 @@
             };
             
             const handleSaveSettings = async (newSettings) => {
-                 try {
-                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), newSettings, { merge: true });
-                     await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                     setNotification({type: 'success', message: 'Settings saved successfully!'});
-                     closeModal();
-                 } catch (e) { console.error("Settings save error:", e); setNotification({type: 'error', message: `Failed to save settings: ${e.message}`}); }
+                try {
+                    const sanitizedUnits = ensurePreferredUnitList(newSettings.unitOptions);
+                    const payload = { ...newSettings, unitOptions: sanitizedUnits };
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), payload, { merge: true });
+                    setSettings(prev => ({ ...prev, ...payload }));
+                    setGlobalUnitOptions(sanitizedUnits);
+                    await logAction('Settings Updated', 'Admin preferences were updated.');
+                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    closeModal();
+                } catch (e) {
+                    console.error("Settings save error:", e);
+                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                }
             };
             
             const handleSaveDrTemplate = async (newTemplate) => {
@@ -1923,8 +2217,9 @@
                                          <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
                                      )}
                                      
-                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
+                                    <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
+                                    <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
                             
@@ -1952,7 +2247,7 @@
                     
                     <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt"/>
 
-                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
+                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} unitOptions={settings.unitOptions} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
