@@ -8,1721 +8,744 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Firebase Libraries -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Expose Firebase modules to the global window object for Babel to access
-        window.firebase = {
-            initializeApp,
-            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-            getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction
-        };
-    </script>
-
 </head>
-<body class="bg-gray-50">
+<body class="bg-slate-100 min-h-screen">
     <div id="root"></div>
-    <!-- This div is used specifically for printing content -->
-    <div id="print-area" class="hidden print:block"></div>
-
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
-        // Destructure Firebase functions from the global window object
-        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp, writeBatch, increment, runTransaction } = window.firebase;
+        const { useState, useMemo, useEffect } = React;
 
-        // --- Firebase Globals (will be initialized in the App component) ---
-        let db, auth;
+        const DEFAULT_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
 
-        // --- Utility Functions ---
+        const SAMPLE_INVENTORY = [
+            { sku: 'SKU-1001', name: 'Electrical Cable', price: 125, stock: 48, units: ['Meter/s', 'Roll/s'] },
+            { sku: 'SKU-1002', name: 'Welding Rod', price: 88, stock: 120, units: ['Box', 'Set/s'] },
+            { sku: 'SKU-1003', name: 'Steel Plate', price: 230, stock: 35, units: ['Length', 'Set/s'] },
+            { sku: 'SKU-1004', name: 'Protective Gloves', price: 45, stock: 210, units: ['PC/s', 'Set/s'] }
+        ];
+
+        const STORAGE_KEY = 'wm_receipts_v1';
+
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        // --- UI Components ---
+        const formatUnitDisplay = (quantity, unit) => {
+            if (!unit) return '';
+            const qty = Number(quantity) || 0;
+            if (qty === 1) {
+                return unit.replace(/\/s$/i, '').replace(/s$/i, '');
+            }
+            if (/s$/i.test(unit)) return unit;
+            return unit + 's';
+        };
 
-        // A simple spinner component for loading states
-        const Spinner = ({ text = "Loading..." }) => (
-            <div className="fixed inset-0 bg-gray-100 bg-opacity-75 flex flex-col justify-center items-center p-4 z-[999]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                <p className="mt-4 text-gray-500">{text}</p>
+        const Modal = ({ title, onClose, children, actions, size = 'xl' }) => (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="absolute inset-0 bg-slate-900/40" onClick={onClose}></div>
+                <div className={`relative bg-white shadow-xl rounded-xl w-full max-h-[90vh] overflow-hidden ${size === '2xl' ? 'max-w-5xl' : size === 'lg' ? 'max-w-3xl' : 'max-w-6xl'}`}>
+                    <div className="flex items-start justify-between px-6 py-4 border-b border-slate-200">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+                            <p className="text-sm text-slate-500">Warehouse Management Tool</p>
+                        </div>
+                        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+                            <span className="sr-only">Close</span>
+                            &times;
+                        </button>
+                    </div>
+                    <div className="overflow-y-auto max-h-[70vh] px-6 py-4 bg-slate-50">{children}</div>
+                    {actions && (
+                        <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end space-x-3">
+                            {actions}
+                        </div>
+                    )}
+                </div>
             </div>
         );
 
-        // A generic modal component
-        const Modal = ({ children, onClose, size = 'md', zIndexClass = 'z-50' }) => {
-            const sizeClasses = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl', '5xl': 'max-w-5xl', '7xl': 'max-w-7xl' };
-            return (
-                <div className={`fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-12 sm:items-center p-4 transition-opacity duration-300 animate-scale-in overflow-y-auto print:hidden ${zIndexClass}`}>
-                    <div className={`bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} p-6 relative transform transition-all duration-300 mb-8`}>
-                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                        {children}
-                    </div>
-                </div>
-            );
-        };
-        
-        // A modal for showing notifications (success, error, info)
-        const NotificationModal = ({ message, type, onClose }) => {
-             const colors = {
-                 success: 'bg-green-100 border-green-500 text-green-700',
-                 error: 'bg-red-100 border-red-500 text-red-700',
-                 info: 'bg-blue-100 border-blue-500 text-blue-700',
-             };
-             const btnColors = {
-                 success: 'bg-green-600 hover:bg-green-700',
-                 error: 'bg-red-600 hover:bg-red-700',
-                 info: 'bg-blue-600 hover:bg-blue-700',
-             }
-             return (
-                 <Modal onClose={onClose} size="sm" zIndexClass="z-[200]">
-                     <div className="text-center">
-                         <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
-                             <p className="font-medium">{message}</p>
-                         </div>
-                         <button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
-                     </div>
-                 </Modal>
-             );
-        };
+        const InventoryTable = ({ items, onAdd }) => {
+            const [filters, setFilters] = useState({ search: '' });
+            const filtered = useMemo(() => {
+                const term = filters.search.trim().toLowerCase();
+                if (!term) return items;
+                return items.filter(item => [item.sku, item.name].some(v => v.toLowerCase().includes(term)));
+            }, [items, filters.search]);
 
-        // A modal for confirming actions (e.g., deletion)
-        const ConfirmationModal = ({ isOpen, onClose, onConfirm, message, confirmText = 'Confirm', cancelText = 'Cancel', confirmClass = 'bg-red-600 hover:bg-red-700' }) => {
-            if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex justify-center items-start pt-12 sm:items-center p-4 transition-opacity duration-300 animate-scale-in">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 relative transform transition-all duration-300">
-                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10 no-print" aria-label="Close modal">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                        <div className="text-center">
-                            <h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3>
-                            <div className="flex justify-center gap-4">
-                                <button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">{cancelText}</button>
-                                <button onClick={onConfirm} className={`px-6 py-2 text-white rounded-full ${confirmClass}`}>{confirmText}</button>
-                            </div>
-                        </div>
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-slate-700">Inventory</h3>
+                        <input
+                            type="search"
+                            value={filters.search}
+                            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                            placeholder="Search SKU or Name"
+                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                     </div>
-                </div>
-            );
-        };
-        
-        // --- Widget & Form Components ---
-
-        // Dashboard widget showing key inventory stats
-        const StatsWidget = ({ inventory }) => {
-            const totalItems = inventory.length;
-            const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-            const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
-            const stats = [
-                { name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
-                { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
-                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
-            ];
-            return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {stats.map(stat => (
-                            <div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                                <div className="text-3xl">{stat.icon}</div>
-                                <div>
-                                    <p className="text-sm text-gray-500">{stat.name}</p>
-                                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
-                                </div>
-                            </div>
-                        ))}
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead className="bg-slate-100">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">SKU</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Name</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Stock</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Unit Price</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Add</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200">
+                                {filtered.length === 0 && (
+                                    <tr>
+                                        <td colSpan="5" className="px-3 py-6 text-center text-slate-400">No items found.</td>
+                                    </tr>
+                                )}
+                                {filtered.map(item => (
+                                    <InventoryRow key={item.sku} item={item} onAdd={onAdd} />
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             );
         };
 
-        // Dashboard widget showing items that are low in stock
-        const LowStockWidget = ({ inventory, settings, onRestock, setNotification }) => {
-            const lowStockItems = useMemo(() => {
-                return inventory.filter(item => {
-                    const reorderLevel = Number(item.reorderLevel || settings.reorderLevel);
-                    return Number(item.qty) <= reorderLevel;
+        const InventoryRow = ({ item, onAdd }) => {
+            const [quantity, setQuantity] = useState(1);
+            const [unit, setUnit] = useState(item.units?.[0] || 'PC/s');
+
+            const handleAdd = () => {
+                if (quantity <= 0) return;
+                onAdd({
+                    sku: item.sku,
+                    description: item.name,
+                    price: item.price,
+                    quantity,
+                    unit,
+                    amount: Number(quantity) * Number(item.price)
                 });
-            }, [inventory, settings]);
-
-            if (lowStockItems.length === 0) {
-                return (
-                    <div className="bg-white rounded-2xl shadow-lg p-6">
-                        <h3 className="text-lg font-bold text-gray-800 mb-4">Stock Alerts</h3>
-                        <div className="text-center py-8 flex flex-col items-center justify-center h-full">
-                            <div className="text-4xl mb-2">✅</div>
-                            <p className="text-gray-500">All items are well-stocked.</p>
-                        </div>
-                    </div>
-                );
-            }
+                setQuantity(1);
+            };
 
             return (
-                <div className="bg-orange-50 border border-orange-200 rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-orange-800 mb-4">Low Stock Alerts ({lowStockItems.length})</h3>
-                    <ul className="space-y-2 h-64 overflow-y-auto pr-2">
-                        {lowStockItems.map(item => (
-                            <li key={item.id} className="text-sm p-2 bg-white rounded-lg flex justify-between items-center">
-                                <div>
-                                    <p className="font-medium text-gray-700">{item.name}</p>
-                                    <p className="text-xs text-gray-500">Stock: <span className="font-bold text-red-500">{item.qty}</span> / Reorder: {Number(item.reorderLevel || settings.reorderLevel)}</p>
-                                </div>
-                                <button onClick={() => { onRestock(item); setNotification({type: 'info', message: `${item.name} added to restock list.`})}} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600">
-                                    Restock
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
+                <tr>
+                    <td className="px-3 py-2 align-top">
+                        <div className="font-semibold text-slate-700">{item.sku}</div>
+                        <div className="text-xs text-slate-500">{item.units?.join(', ') || 'PC/s'}</div>
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{item.name}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{item.stock}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{formatCurrency(item.price)}</td>
+                    <td className="px-3 py-2">
+                        <div className="flex items-center justify-end space-x-2">
+                            <input
+                                type="number"
+                                min="1"
+                                value={quantity}
+                                onChange={(e) => setQuantity(Number(e.target.value))}
+                                className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                            />
+                            <select
+                                value={unit}
+                                onChange={(e) => setUnit(e.target.value)}
+                                className="rounded border border-slate-300 px-2 py-1 text-sm"
+                            >
+                                {(item.units?.length ? item.units : DEFAULT_UNITS).map(option => (
+                                    <option key={option} value={option}>{option}</option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={handleAdd}
+                                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                            >
+                                Add
+                            </button>
+                        </div>
+                    </td>
+                </tr>
             );
         };
 
-        // Main table displaying all inventory items
-        const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
-            const filteredInventory = useMemo(() => inventory.filter(item => 
-                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-            ), [inventory, searchTerm]);
-
+        const ReceiptPreview = ({ items, meta }) => {
+            const total = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
             return (
-                <div className="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
-                    <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
-                        <div className="relative w-full sm:w-64">
-                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        </div>
+                <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-200 bg-slate-100">
+                        <h4 className="text-base font-semibold text-slate-700">Delivery Receipt Preview</h4>
+                        <p className="text-xs text-slate-500">{meta.reference || 'Draft'} &bull; {meta.site || 'Main Warehouse'}</p>
                     </div>
-                    {isLoading ? <Spinner text="Loading inventory..." /> : (
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg">
-                            <table className="w-full text-left table-auto">
-                                <thead className="sticky top-0 bg-white z-10">
-                                    <tr className="border-b-2 border-gray-100">
-                                        <th className="p-4 text-sm font-semibold text-gray-600">SKU</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Name</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Price</th>
-                                        <th className="p-4 text-sm font-semibold text-gray-600">Qty</th>
-                                        {isAdminMode && <th className="p-4 text-sm font-semibold text-gray-600 text-right">Actions</th>}
+                    <div className="px-4 py-3">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                                <thead className="bg-slate-100">
+                                    <tr className="text-left text-slate-600">
+                                        <th className="px-3 py-2 w-16">Qty</th>
+                                        <th className="px-3 py-2 w-24">Unit</th>
+                                        <th className="px-3 py-2">Description</th>
+                                        <th className="px-3 py-2 w-32 text-right">Unit Price</th>
+                                        <th className="px-3 py-2 w-32 text-right">Amount</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => {
-                                        const reorder = Number(item.reorderLevel || settings.reorderLevel);
-                                        const isLowStock = Number(item.qty) <= reorder;
-                                        return (
-                                            <tr key={item.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
-                                                <td className="p-4 font-mono text-xs text-gray-500">{item.sku}</td>
-                                                <td className="p-4">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">{item.brand}</p>
-                                                </td>
-                                                <td className="p-4 text-gray-600">{formatCurrency(item.price)}</td>
-                                                <td className={`p-4 font-semibold ${isLowStock ? 'text-orange-500' : 'text-gray-600'}`}>{item.qty}</td>
-                                                {isAdminMode && (
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
-                                                            <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
-                                                            <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
-                                                        </div>
-                                                    </td>
-                                                )}
-                                            </tr>
-                                        )
-                                    }) : (
-                                        <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
+                                <tbody className="divide-y divide-slate-200">
+                                    {items.length === 0 && (
+                                        <tr>
+                                            <td colSpan="5" className="px-3 py-6 text-center text-slate-400">No items yet.</td>
+                                        </tr>
                                     )}
+                                    {items.map((item, idx) => (
+                                        <tr key={idx} className="text-slate-700">
+                                            <td className="px-3 py-2">{item.quantity}</td>
+                                            <td className="px-3 py-2">{formatUnitDisplay(item.quantity, item.unit)}</td>
+                                            <td className="px-3 py-2 break-words">{item.description}</td>
+                                            <td className="px-3 py-2 text-right">{formatCurrency(item.price)}</td>
+                                            <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
+                                        </tr>
+                                    ))}
                                 </tbody>
+                                <tfoot className="bg-slate-50">
+                                    <tr>
+                                        <td colSpan="4" className="px-3 py-2 text-right font-semibold text-slate-600">Grand Total</td>
+                                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatCurrency(total)}</td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
-                    )}
-                </div>
-            );
-        };
-        
-        // Widget to display recent activity logs
-        const LogsWidget = ({ isLoading, appId }) => {
-            const [logs, setLogs] = useState([]);
-            useEffect(() => {
-                if (!db || !appId) return;
-                const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
-                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
-                    (error) => console.error("Error fetching logs:", error));
-                return () => unsub();
-            }, [appId]);
-
-            return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Activity Logs</h3>
-                    {isLoading ? <Spinner text="Loading logs..." /> : logs.length > 0 ? (
-                        <ul className="space-y-3 h-64 overflow-y-auto pr-2">
-                            {logs.map(log => (
-                                <li key={log.id} className="text-sm">
-                                    <p className="font-medium text-gray-700">
-                                        {log.action} by <span className="text-indigo-600">{log.user || 'System'}</span>: <span className="font-normal text-gray-600">{log.details}</span>
-                                    </p>
-                                    <p className="text-xs text-gray-400">{log.timestamp?.toDate().toLocaleString()}</p>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-center py-8 text-gray-500">No recent activity.</p>}
+                    </div>
                 </div>
             );
         };
 
-        // Form for adding or editing an inventory item
-        const ItemForm = ({ currentItem, onSave, onClose, setNotification }) => {
-            const [item, setItem] = useState({ name: '', brand: '', qty: '0', location: '', sku: '', price: '0.00', reorderLevel: '10' });
-            const [isSaving, setIsSaving] = useState(false);
-
-            useEffect(() => {
-                if (currentItem) {
-                    setItem(currentItem);
-                } else {
-                    setItem({ name: '', brand: '', qty: '0', location: '', sku: `SKU-${Date.now()}`, price: '0.00', reorderLevel: '10' });
-                }
-            }, [currentItem]);
-
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                const uppercaseFields = ['sku', 'name', 'brand', 'location'];
-                setItem(prev => ({ ...prev, [name]: uppercaseFields.includes(name) ? value.toUpperCase() : value }));
-            };
-            
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!item.name || !item.sku) {
-                    setNotification({type: 'error', message: 'SKU and Name are required.'});
-                    return;
-                }
-                setIsSaving(true);
-                await onSave({ ...item, qty: Number(item.qty), price: parseFloat(item.price), reorderLevel: Number(item.reorderLevel) });
-                setIsSaving(false);
-            };
-
-            return (
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <h2 className="text-2xl font-bold text-gray-800">{currentItem ? 'Edit Item' : 'Add New Item'}</h2>
-                    <div><label className="block text-sm font-medium">SKU</label><input type="text" name="sku" value={item.sku} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                    <div><label className="block text-sm font-medium">Item Name</label><input type="text" name="name" value={item.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Brand</label><input type="text" name="brand" value={item.brand} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                        <div><label className="block text-sm font-medium">Location</label><input type="text" name="location" value={item.location} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium">Price</label><input type="number" step="0.01" name="price" value={item.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-medium">Reorder Level</label><input type="number" name="reorderLevel" value={item.reorderLevel} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>
-                    </div>
-                    { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
-                    <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                        <button type="submit" disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                           {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                           {isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
-                        </button>
-                    </div>
-                </form>
-            );
-        };
-        
-        // Modal for entering admin password
-        const AdminLoginModal = ({ onLogin, onClose }) => {
-            const [password, setPassword] = useState('');
-            const handleSubmit = (e) => { e.preventDefault(); onLogin(password); };
-            return (
-                <Modal onClose={onClose} size="sm">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <h2 className="text-2xl font-bold text-center text-gray-800">Admin Access</h2>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-600">Password</label>
-                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" autoFocus />
-                        </div>
-                        <button type="submit" className="w-full px-6 py-2 text-white bg-indigo-600 rounded-full hover:bg-indigo-700">Unlock</button>
-                    </form>
-                </Modal>
-            );
-        };
-        
-        // Form for adjusting the stock quantity of an item
-        const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
-            const [adjustment, setAdjustment] = useState(0);
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleSave = async () => {
-                if (adjustment === 0) {
-                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
-                     return;
-                }
-                setIsSaving(true);
-                await onAdjust(item, adjustment);
-                setIsSaving(false);
-            }
-
-            return (
-                <Modal onClose={onClose} size="md">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">Adjust Stock</h2>
-                        <div>
-                            <p className="font-medium text-lg">{item.name} <span className="text-sm text-gray-500">({item.sku})</span></p>
-                            <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
-                        </div>
-                        <div>
-                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                           <input 
-                               type="number" 
-                               value={adjustment} 
-                               onChange={(e) => setAdjustment(Number(e.target.value))} 
-                               className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                               autoFocus
-                            />
-                            <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
-                        </div>
-                        <div className="flex justify-end gap-4 pt-4">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300 flex items-center gap-2">
-                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                {isSaving ? 'Applying...' : 'Apply Adjustment'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        // Form for changing application settings (admin pass, reorder level)
-        const SettingsForm = ({ settings, onSave, onClose }) => {
-            const [localSettings, setLocalSettings] = useState(settings);
-            const [isSaving, setIsSaving] = useState(false);
-
-            const handleChange = (e) => setLocalSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
-
-            const handleSave = async () => {
-                setIsSaving(true);
-                await onSave(localSettings);
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="lg">
-                    <div className="space-y-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Application Settings</h2>
-                        <div>
-                           <label className="block text-sm font-medium">Admin Password</label>
-                           <input type="password" name="adminPass" value={localSettings.adminPass} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Set a new password for accessing admin functions.</p>
-                        </div>
-                        <div>
-                           <label className="block text-sm font-medium">Default Reorder Level</label>
-                           <input type="number" name="reorderLevel" value={localSettings.reorderLevel} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg" />
-                           <p className="text-xs text-gray-500 mt-1">Global alert level for low stock if not set per-item.</p>
-                        </div>
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                                {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                                {isSaving ? 'Saving...' : 'Save Settings'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-
-        // Form for managing project sites
-        const SiteManagementForm = ({ sites, onSave, onClose, setNotification, onFinishSite, onReactivateSite }) => {
-            const [editingSite, setEditingSite] = useState(null);
-            const [formData, setFormData] = useState({ name: '', drPrefix: '' });
-            const [isSaving, setIsSaving] = useState(false);
-
-            useEffect(() => {
-                if (editingSite) {
-                    setFormData(editingSite);
-                } else {
-                    setFormData({ name: '', drPrefix: '' });
-                }
-            }, [editingSite]);
-
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
-            };
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!formData.name || !formData.drPrefix) {
-                    setNotification({ type: 'error', message: "Site Name and DR Prefix are required." });
-                    return;
-                }
-                setIsSaving(true);
-                await onSave(formData);
-                setIsSaving(false);
-                setEditingSite(null); // Reset form after saving
-            };
-
-            return (
-                <Modal onClose={onClose} size="lg">
-                    <div className="space-y-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
-                        <form onSubmit={handleSubmit} className="p-4 border rounded-lg bg-gray-50 space-y-4">
-                            <h3 className="font-bold">{editingSite ? 'Edit Site' : 'Add New Site'}</h3>
-                            <div className="flex gap-2 items-end">
-                                <div className="flex-grow">
-                                    <label className="text-sm font-medium">Site Name</label>
-                                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                </div>
-                                <div className="flex-grow">
-                                    <label className="text-sm font-medium">DR Prefix</label>
-                                    <input type="text" name="drPrefix" value={formData.drPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                </div>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                {editingSite && <button type="button" onClick={() => setEditingSite(null)} className="px-4 h-10 bg-gray-200 rounded-lg">Cancel</button>}
-                                <button type="submit" disabled={isSaving} className="px-4 h-10 text-white bg-indigo-600 rounded-lg flex items-center justify-center disabled:bg-indigo-300">
-                                    {isSaving ? '...' : (editingSite ? 'Save Changes' : 'Add Site')}
-                                </button>
-                            </div>
-                        </form>
-                        <div className="border-t pt-4">
-                            <h3 className="font-bold mb-2">Existing Sites</h3>
-                            <ul className="space-y-2 h-48 overflow-y-auto pr-2">
-                                {sites.length > 0 ? sites.map(s => (
-                                    <li key={s.id} className={`p-3 rounded-lg flex justify-between items-center ${s.status === 'Finished' ? 'bg-gray-200' : 'bg-gray-100'}`}>
-                                        <div>
-                                            <span className={`font-medium ${s.status === 'Finished' ? 'text-gray-500' : ''}`}>{s.name}</span>
-                                            <span className={`ml-4 font-mono ${s.status === 'Finished' ? 'text-gray-400' : 'text-gray-500'}`}>{s.drPrefix} / Last DR: {s.lastDrNumber || 0}</span>
-                                            {s.status === 'Finished' && <span className="ml-4 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">FINISHED</span>}
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <button onClick={() => setEditingSite(s)} disabled={s.status === 'Finished'} className="text-sm text-indigo-600 hover:underline disabled:text-gray-400 disabled:no-underline">Edit</button>
-                                            {s.status === 'Finished' ? (
-                                                <button onClick={() => onReactivateSite(s)} className="text-sm text-green-600 hover:underline">Re-activate</button>
-                                            ) : (
-                                                <button onClick={() => onFinishSite(s)} className="text-sm text-blue-600 hover:underline">Mark as Finished</button>
-                                            )}
-                                        </div>
-                                    </li>
-                                )) : <p className="text-gray-500">No sites configured.</p>}
-                            </ul>
-                        </div>
-                        <div className="flex justify-end">
-                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full mt-4">Done</button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        // Form for creating a new delivery receipt
-        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification }) => {
-            const [siteId, setSiteId] = useState('');
-            const [customerName, setCustomerName] = useState('');
-            const [address, setAddress] = useState('');
-            const [poNumber, setPoNumber] = useState('');
-            const [remarks, setRemarks] = useState('');
-            const [cart, setCart] = useState([]);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [showPrice, setShowPrice] = useState(true);
-
-            const filteredInventory = useMemo(() => inventory.filter(i =>
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
-
-            const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
-
-            const addToCart = (item) => {
-                setCart(prev => {
-                    if (prev.find(i => i.id === item.id)) {
-                        setNotification({ type: 'info', message: `${item.name} is already in the list.` });
-                        return prev;
-                    }
-                    return [...prev, { ...item, dispatchQty: 1 }];
-                });
-            };
-
-            const updateCartQty = (id, qty) => {
-                const inventoryItem = inventory.find(i => i.id === id);
-                const newQty = Math.max(0, Number(qty));
-                if (newQty > inventoryItem.qty) {
-                    setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
-                    setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: inventoryItem.qty } : i));
-                    return;
-                }
-                setCart(cart.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
-            };
-
-            const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
-            
-            const handleFinalize = () => {
-                const finalCart = cart.filter(i => i.dispatchQty > 0);
-                if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
-                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
-                
-                const receiptData = { siteId, customerName, address, poNumber, remarks, items: finalCart, showPrice };
-                onFinalize(receiptData);
-            }
-
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Item List & Header */}
-                        <div className="lg:col-span-2 space-y-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                     <option value="">-- Select Site --</option>
-                                     {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                 </select>
-                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                 <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleTextChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                 <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
-                             </div>
-                            <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                            <div className="h-[40vh] overflow-y-auto border rounded-lg">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-50 z-10">
-                                        <tr>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Receipt Cart Column */}
-                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                            <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
-                            <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
-                                    <tbody>
-                                        {cart.length > 0 ? cart.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name}</td>
-                                                <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
-                                            </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added.</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleTextChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            <div className="space-y-2 text-sm p-2 bg-gray-100 rounded-md">
-                                <label className="flex items-center gap-2"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show Price & Totals</label>
-                            </div>
-                             <div className="flex justify-end gap-2 pt-4 border-t">
-                                 <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                     Preview & Finalize
-                                 </button>
-                             </div>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        // Modal for showing historical documents (DRs, Orders)
-        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type }) => {
-            const groupedDocuments = useMemo(() => {
-                if (!documents) return {};
-                if (type !== 'dr_manager') {
-                    return { 'All': documents };
-                }
-                return documents.reduce((acc, doc) => {
-                    const key = doc.siteName || 'Uncategorized';
-                    if (!acc[key]) {
-                        acc[key] = [];
-                    }
-                    acc[key].push(doc);
-                    return acc;
-                }, {});
-            }, [documents, type]);
-            
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-                        <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
-                            {Object.entries(groupedDocuments).map(([groupName, docs]) => (
-                                <div key={groupName} className="mb-8">
-                                    {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
-                                    <table className="w-full text-left">
-                                        <thead className="sticky top-0 bg-gray-50 z-10">
-                                            <tr>
-                                                <th className="p-3">Number</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Identifier</th>
-                                                <th className="p-3">Items</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {docs.map(doc => {
-                                                const getStatusClass = (status) => {
-                                                    if (status === 'Voided') return 'text-red-500 bg-red-100';
-                                                    if (status === 'Finished') return 'text-blue-500 bg-blue-100';
-                                                    if (status === 'Completed') return 'text-green-500 bg-green-100';
-                                                    if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
-                                                    return 'text-gray-500 bg-gray-100';
-                                                }
-                                                return (
-                                                 <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                     <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                     <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                     <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                     <td className="p-3">{doc.items.length}</td>
-                                                     <td className="p-3">
-                                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                             {doc.status || 'Active'}
-                                                         </span>
-                                                     </td>
-                                                     <td className="p-3 text-right">
-                                                         <div className="flex gap-2 justify-end">
-                                                             <button onClick={() => openDetailView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                             {actions.map(action => (
-                                                                 <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                             ))}
-                                                         </div>
-                                                     </td>
-                                                 </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </Modal>
-            )
-        };
-        
-        // Component to display a detailed, printable receipt view
-        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText }) => {
-            const [isSaving, setIsSaving] = useState(false);
-            const [isSaved, setIsSaved] = useState(false);
-
-            const printContent = () => {
-                const printArea = document.getElementById('print-area');
-                if (printArea) {
-                    printArea.innerHTML = document.querySelector('.printable-area').innerHTML;
-                    window.print();
-                }
-            };
-            const totalValue = receipt.items.reduce((sum, item) => sum + ((item.dispatchQty || item.requestedQty) * item.price), 0);
-            
-            const effectiveTemplate = {
-                title: 'DELIVERY RECEIPT', 
-                logoUrl: '', 
-                color: '#dc2626',
-                companyName: 'Your Company LLC',
-                companyAddress: '123 Business Rd, Suite 456, Business City',
-                companyContact: '(123) 456-7890',
-                companyEmail: 'contact@yourcompany.com',
-                signatory1: 'Received by / Date', 
-                signatory2: 'Issued by',
-                signatory3: '',
-                signatory4: '',
-                ...template
-            };
-
-            const showPrice = receipt.showPrice !== false;
-            
-            const handleConfirm = async () => {
-                setIsSaving(true);
-                const success = await onConfirm();
-                setIsSaving(false);
-                if(success) {
-                    setIsSaved(true);
-                }
-            };
-
-            const content = (
-                <div className="printable-area space-y-6 p-8 bg-white font-serif text-gray-900">
-                    {/* Header */}
-                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
-                        <div className="w-1/4">
-                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
-                        </div>
-                        <div className="w-3/4 text-right">
-                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
-                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
-                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
-                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
-                        </div>
-                    </div>
-
-                    {/* Title */}
-                    <div className="text-center my-8">
-                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
-                    </div>
-                    
-                    {/* Customer & DR Info */}
-                    <div className="grid grid-cols-2 gap-8 mb-8">
-                        <div>
-                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
-                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
-                            <p>{receipt.address || 'N/A'}</p>
-                        </div>
-                        <div className="text-right">
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">No.:</span>
-                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
-                            </div>
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">Date:</span>
-                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
-                            </div>
-                            {receipt.poNumber &&
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">P.O. No.:</span>
-                                    <span className="text-right">{receipt.poNumber}</span>
-                                </div>
-                            }
-                            {receipt.drNumber && 
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">Site:</span>
-                                    <span className="text-right">{receipt.siteName}</span>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    {/* Items Table */}
-                    <table className="w-full text-left text-sm table-auto border-collapse">
-                        <thead className="bg-gray-100">
+        const CartTable = ({ items, onUpdate, onRemove }) => (
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead className="bg-slate-100 text-slate-600">
+                        <tr>
+                            <th className="px-3 py-2 text-left">Description</th>
+                            <th className="px-3 py-2 text-right w-24">Qty</th>
+                            <th className="px-3 py-2 w-28">Unit</th>
+                            <th className="px-3 py-2 text-right w-32">Unit Price</th>
+                            <th className="px-3 py-2 text-right w-32">Amount</th>
+                            <th className="px-3 py-2 w-16"></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                        {items.length === 0 && (
                             <tr>
-                                <th className="p-2 border">Qty</th>
-                                <th className="p-2 border">Unit</th>
-                                <th className="p-2 border">Description</th>
-                                {showPrice && <th className="p-2 border text-right">Unit Price</th>}
-                                {showPrice && <th className="p-2 border text-right">Total</th>}
+                                <td colSpan="6" className="px-3 py-6 text-center text-slate-400">No items added.</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            {receipt.items.map(item => (
-                                <tr key={item.id} className="border-b">
-                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">pcs</td>
-                                    <td className="p-2 border">{item.name}</td>
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
-                                </tr>
-                            ))}
-                        </tbody>
-                        {showPrice && (
-                            <tfoot className="font-bold">
-                                <tr>
-                                    <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
-                                    <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
-                                </tr>
-                            </tfoot>
                         )}
-                    </table>
+                        {items.map((item, idx) => (
+                            <tr key={idx}>
+                                <td className="px-3 py-2">
+                                    <div className="font-medium">{item.description}</div>
+                                    {item.sku && <div className="text-xs text-slate-400">{item.sku}</div>}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={item.quantity}
+                                        onChange={(e) => onUpdate(idx, { quantity: Number(e.target.value) })}
+                                        className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                                    />
+                                </td>
+                                <td className="px-3 py-2">
+                                    <select
+                                        value={item.unit}
+                                        onChange={(e) => onUpdate(idx, { unit: e.target.value })}
+                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                    >
+                                        {DEFAULT_UNITS.map(option => (
+                                            <option key={option} value={option}>{option}</option>
+                                        ))}
+                                    </select>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={item.price}
+                                        onChange={(e) => onUpdate(idx, { price: Number(e.target.value) })}
+                                        className="w-24 rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                                    />
+                                </td>
+                                <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
+                                <td className="px-3 py-2 text-right">
+                                    <button
+                                        onClick={() => onRemove(idx)}
+                                        className="text-sm text-rose-500 hover:text-rose-600"
+                                    >
+                                        Remove
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
 
-                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
-                    
-                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
-                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
-                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
-                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
-                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+        const InventoryReceiptModal = ({ onClose, onSave }) => {
+            const [cart, setCart] = useState([]);
+            const [site, setSite] = useState('Main Warehouse');
+            const [reference, setReference] = useState('DR-' + Date.now());
+
+            const handleAdd = (item) => {
+                setCart(prev => {
+                    const index = prev.findIndex(entry => entry.description === item.description && entry.unit === item.unit);
+                    if (index !== -1) {
+                        const updated = [...prev];
+                        const existing = updated[index];
+                        const quantity = Number(existing.quantity) + Number(item.quantity);
+                        updated[index] = {
+                            ...existing,
+                            quantity,
+                            amount: quantity * existing.price
+                        };
+                        return updated;
+                    }
+                    return [...prev, { ...item }];
+                });
+            };
+
+            const updateCart = (index, changes) => {
+                setCart(prev => {
+                    const updated = [...prev];
+                    const current = { ...updated[index], ...changes };
+                    current.amount = Number(current.quantity || 0) * Number(current.price || 0);
+                    updated[index] = current;
+                    return updated;
+                });
+            };
+
+            const removeItem = (index) => setCart(prev => prev.filter((_, idx) => idx !== index));
+
+            const handleSave = () => {
+                if (cart.length === 0) {
+                    alert('Please add at least one item.');
+                    return;
+                }
+                onSave({
+                    id: crypto.randomUUID(),
+                    number: reference,
+                    createdAt: new Date().toISOString(),
+                    type: 'Inventory',
+                    site,
+                    items: cart,
+                    total: cart.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                });
+                onClose();
+            };
+
+            return (
+                <Modal
+                    title="Create Delivery Receipt"
+                    onClose={onClose}
+                    actions={[
+                        <button key="cancel" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">Cancel</button>,
+                        <button key="save" onClick={handleSave} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Receipt</button>
+                    ]}
+                >
+                    <div className="grid gap-6 lg:grid-cols-2">
+                        <div className="space-y-6">
+                            <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                                <label className="text-sm font-medium text-slate-600">
+                                    Receipt Number
+                                    <input
+                                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                        value={reference}
+                                        onChange={(e) => setReference(e.target.value)}
+                                    />
+                                </label>
+                                <label className="text-sm font-medium text-slate-600">
+                                    Site / Project
+                                    <input
+                                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                        value={site}
+                                        onChange={(e) => setSite(e.target.value)}
+                                    />
+                                </label>
+                            </div>
+                            <InventoryTable items={SAMPLE_INVENTORY} onAdd={handleAdd} />
+                        </div>
+                        <div className="space-y-4">
+                            <h3 className="text-base font-semibold text-slate-700">Items Added</h3>
+                            <CartTable items={cart} onUpdate={updateCart} onRemove={removeItem} />
+                            <ReceiptPreview items={cart} meta={{ site, reference }} />
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const ManualReceiptModal = ({ onClose, onSave }) => {
+            const [rows, setRows] = useState([
+                { description: '', quantity: 1, unit: 'PC/s', price: 0, amount: 0 }
+            ]);
+            const [site, setSite] = useState('Main Warehouse');
+            const [reference, setReference] = useState('MAN-' + Date.now());
+
+            const updateRow = (index, changes) => {
+                setRows(prev => {
+                    const updated = [...prev];
+                    const current = { ...updated[index], ...changes };
+                    current.amount = Number(current.quantity || 0) * Number(current.price || 0);
+                    updated[index] = current;
+                    return updated;
+                });
+            };
+
+            const addRow = () => setRows(prev => [...prev, { description: '', quantity: 1, unit: 'PC/s', price: 0, amount: 0 }]);
+            const removeRow = (index) => setRows(prev => prev.filter((_, idx) => idx !== index));
+
+            const handleSave = () => {
+                const cleaned = rows
+                    .map(row => ({
+                        ...row,
+                        description: row.description.trim(),
+                        amount: Number(row.quantity || 0) * Number(row.price || 0)
+                    }))
+                    .filter(row => row.description && Number(row.quantity) > 0);
+
+                if (cleaned.length === 0) {
+                    alert('Please provide at least one complete row.');
+                    return;
+                }
+
+                onSave({
+                    id: crypto.randomUUID(),
+                    number: reference,
+                    createdAt: new Date().toISOString(),
+                    type: 'Manual',
+                    site,
+                    items: cleaned,
+                    total: cleaned.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                });
+                onClose();
+            };
+
+            return (
+                <Modal
+                    title="Manual Delivery Receipt"
+                    onClose={onClose}
+                    actions={[
+                        <button key="cancel" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">Cancel</button>,
+                        <button key="save" onClick={handleSave} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Receipt</button>
+                    ]}
+                >
+                    <div className="space-y-6">
+                        <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 lg:grid-cols-2">
+                            <label className="text-sm font-medium text-slate-600">
+                                Receipt Number
+                                <input
+                                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                    value={reference}
+                                    onChange={(e) => setReference(e.target.value)}
+                                />
+                            </label>
+                            <label className="text-sm font-medium text-slate-600">
+                                Site / Project
+                                <input
+                                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                    value={site}
+                                    onChange={(e) => setSite(e.target.value)}
+                                />
+                            </label>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                                    <thead className="bg-slate-100 text-slate-600">
+                                        <tr>
+                                            <th className="px-3 py-2 w-20 text-left">Qty</th>
+                                            <th className="px-3 py-2 w-24 text-left">Unit</th>
+                                            <th className="px-3 py-2 text-left">Description</th>
+                                            <th className="px-3 py-2 w-28 text-right">Unit Price</th>
+                                            <th className="px-3 py-2 w-20"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {rows.map((row, idx) => (
+                                            <tr key={idx}>
+                                                <td className="px-3 py-2">
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        value={row.quantity}
+                                                        onChange={(e) => updateRow(idx, { quantity: Number(e.target.value) })}
+                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <select
+                                                        value={row.unit}
+                                                        onChange={(e) => updateRow(idx, { unit: e.target.value })}
+                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                                    >
+                                                        {DEFAULT_UNITS.map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <textarea
+                                                        value={row.description}
+                                                        onChange={(e) => updateRow(idx, { description: e.target.value })}
+                                                        rows="2"
+                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                                        placeholder="Item description"
+                                                    ></textarea>
+                                                </td>
+                                                <td className="px-3 py-2 text-right">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={row.price}
+                                                        onChange={(e) => updateRow(idx, { price: Number(e.target.value) })}
+                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm text-right"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2 text-right">
+                                                    <button onClick={() => removeRow(idx)} className="text-sm text-rose-500 hover:text-rose-600">Remove</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <button
+                                onClick={addRow}
+                                className="rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-medium text-blue-600 hover:border-blue-500 hover:text-blue-700"
+                            >
+                                Add Row
+                            </button>
+                            <ReceiptPreview items={rows} meta={{ reference, site }} />
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const ReportsModal = ({ onClose, receipts }) => {
+            const [range, setRange] = useState('30');
+
+            const filtered = useMemo(() => {
+                const days = Number(range);
+                if (!days) return receipts;
+                const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
+                return receipts.filter(receipt => new Date(receipt.createdAt).getTime() >= threshold);
+            }, [receipts, range]);
+
+            const totals = useMemo(() => {
+                const totalAmount = filtered.reduce((sum, receipt) => sum + (receipt.total || 0), 0);
+                const totalReceipts = filtered.length;
+                const itemUsage = new Map();
+                filtered.forEach(receipt => {
+                    receipt.items.forEach(item => {
+                        const key = item.description || item.sku || 'Unknown Item';
+                        const current = itemUsage.get(key) || { quantity: 0, amount: 0 };
+                        current.quantity += Number(item.quantity) || 0;
+                        current.amount += Number(item.amount) || 0;
+                        itemUsage.set(key, current);
+                    });
+                });
+                const topItems = Array.from(itemUsage.entries())
+                    .map(([name, stats]) => ({ name, ...stats }))
+                    .sort((a, b) => b.quantity - a.quantity)
+                    .slice(0, 5);
+                return { totalAmount, totalReceipts, topItems };
+            }, [filtered]);
+
+            return (
+                <Modal
+                    title="Reports & Usage Analytics"
+                    onClose={onClose}
+                    actions={[
+                        <button key="close" onClick={onClose} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Close</button>
+                    ]}
+                    size="2xl"
+                >
+                    <div className="space-y-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-base font-semibold text-slate-700">Overview</h3>
+                                <p className="text-sm text-slate-500">Showing receipts from the last {range} days.</p>
+                            </div>
+                            <select
+                                value={range}
+                                onChange={(e) => setRange(e.target.value)}
+                                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                            >
+                                <option value="7">Last 7 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="90">Last 90 days</option>
+                                <option value="0">All time</option>
+                            </select>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-3">
+                            <StatCard label="Receipts" value={totals.totalReceipts} />
+                            <StatCard label="Total Amount" value={formatCurrency(totals.totalAmount)} />
+                            <StatCard label="Average" value={totals.totalReceipts ? formatCurrency(totals.totalAmount / totals.totalReceipts) : formatCurrency(0)} />
+                        </div>
+                        <div className="space-y-3">
+                            <h4 className="text-sm font-semibold text-slate-700">Top Used Items</h4>
+                            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                                    <thead className="bg-slate-100 text-slate-600">
+                                        <tr>
+                                            <th className="px-3 py-2 text-left">Item</th>
+                                            <th className="px-3 py-2 text-right w-32">Quantity</th>
+                                            <th className="px-3 py-2 text-right w-32">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {totals.topItems.length === 0 && (
+                                            <tr>
+                                                <td colSpan="3" className="px-3 py-6 text-center text-slate-400">No usage data yet.</td>
+                                            </tr>
+                                        )}
+                                        {totals.topItems.map(item => (
+                                            <tr key={item.name}>
+                                                <td className="px-3 py-2">{item.name}</td>
+                                                <td className="px-3 py-2 text-right">{item.quantity}</td>
+                                                <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const StatCard = ({ label, value }) => (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-800">{value}</p>
+            </div>
+        );
+
+        const ReceiptManager = ({ receipts }) => {
+            const [search, setSearch] = useState('');
+            const filtered = useMemo(() => {
+                const term = search.trim().toLowerCase();
+                if (!term) return receipts;
+                return receipts.filter(receipt => {
+                    return [receipt.number, receipt.site, receipt.type, receipt.createdAt]
+                        .filter(Boolean)
+                        .some(value => value.toLowerCase().includes(term));
+                });
+            }, [receipts, search]);
+
+            return (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h2 className="text-lg font-semibold text-slate-800">Delivery Receipt Manager</h2>
+                        <input
+                            type="search"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search by number, site, or date"
+                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                    <div className="mt-4 overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead className="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th className="px-3 py-2 text-left">Number</th>
+                                    <th className="px-3 py-2 text-left">Site</th>
+                                    <th className="px-3 py-2 text-left">Type</th>
+                                    <th className="px-3 py-2 text-left">Created</th>
+                                    <th className="px-3 py-2 text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 text-slate-700">
+                                {filtered.length === 0 && (
+                                    <tr>
+                                        <td colSpan="5" className="px-3 py-8 text-center text-slate-400">No receipts yet.</td>
+                                    </tr>
+                                )}
+                                {filtered.map(receipt => (
+                                    <tr key={receipt.id}>
+                                        <td className="px-3 py-2 font-medium text-slate-800">{receipt.number}</td>
+                                        <td className="px-3 py-2">{receipt.site}</td>
+                                        <td className="px-3 py-2">{receipt.type}</td>
+                                        <td className="px-3 py-2">{new Date(receipt.createdAt).toLocaleString()}</td>
+                                        <td className="px-3 py-2 text-right font-semibold">{formatCurrency(receipt.total)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             );
-
-            if (isPreview) {
-                 return (
-                     <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex justify-center items-start p-4 overflow-y-auto">
-                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
-                             <div className="p-8">
-                                 {content}
-                             </div>
-                             <div className="flex justify-end gap-4 p-4 border-t no-print">
-                                 {isSaved ? (
-                                     <>
-                                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                                         <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
-                                     </>
-                                 ) : (
-                                     <>
-                                         {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
-                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
-                                         </button>}
-                                     </>
-                                 )}
-                             </div>
-                         </div>
-                     </div>
-                 )
-            }
-
-            return (
-                <Modal onClose={onClose} size="3xl">
-                    {content}
-                     <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
-                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
-                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                     </div>
-                </Modal>
-            )
         };
 
-        // Form for non-admin users to request items
-        const UserOrderForm = ({ inventory, onSave, onClose, setNotification, user }) => {
-            const [orderCart, setOrderCart] = useState([]);
-            const [remarks, setRemarks] = useState('');
-            const [searchTerm, setSearchTerm] = useState('');
-            const [isSaving, setIsSaving] = useState(false);
-
-            const filteredInventory = useMemo(() => inventory.filter(i => 
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
-            
-            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
-
-            const addToCart = (item) => {
-                setOrderCart(prev => {
-                    if (prev.find(i => i.id === item.id)) {
-                        setNotification({ type: 'info', message: `${item.name} is already in the cart.` });
-                        return prev;
-                    }
-                    return [...prev, { ...item, requestedQty: 1 }];
-                });
-            };
-            
-            const updateCartQty = (id, qty) => setOrderCart(prev => prev.map(i => i.id === id ? { ...i, requestedQty: Math.max(0, Number(qty)) } : i));
-            const removeFromCart = (id) => setOrderCart(prev => prev.filter(i => i.id !== id));
-
-            const handleSave = async () => {
-                const finalCart = orderCart.filter(i => i.requestedQty > 0);
-                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
-                
-                setIsSaving(true);
-                const orderData = {
-                    requestedBy: user.isAnonymous ? `User (${user.uid.substring(0,6)})` : user.email,
-                    remarks,
-                    items: finalCart
-                };
-                await onSave(orderData);
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Item List Column */}
-                        <div className="lg:col-span-2 space-y-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Create New Order Request</h2>
-                            <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                            <div className="h-[50vh] overflow-y-auto border rounded-lg">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-50 z-10">
-                                        <tr>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={orderCart.some(c => c.id === item.id)}>
-                                                        {orderCart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Order Cart Column */}
-                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                             <h3 className="text-xl font-bold text-gray-800">Your Order Cart</h3>
-                            <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
-                                    <tbody>
-                                        {orderCart.length > 0 ? orderCart.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name}</td>
-                                                <td className="p-2"><input type="number" value={item.requestedQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
-                                            </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">Cart is empty.</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                             <div className="flex justify-end gap-4 pt-4 border-t">
-                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                                 <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
-                                     {isSaving ? 'Submitting...' : `Submit Order (${orderCart.filter(i => i.requestedQty > 0).length})`}
-                                 </button>
-                             </div>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-        
-        // Modal for editing the printable document template
-        const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
-            const [localTemplate, setLocalTemplate] = useState(template);
-            const [isSaving, setIsSaving] = useState(false);
-            
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                // Only uppercase text fields, not color pickers etc.
-                const isTextField = e.target.type === 'text' || e.target.type === 'email';
-                setLocalTemplate(prev => ({...prev, [name]: isTextField ? value.toUpperCase() : value }));
-            };
-
-            const handleFileChange = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    if (file.size > 2000000) { // Limit file size to 2MB
-                        setNotification({ type: 'error', message: 'Image is too large. Please select an image under 2MB.' });
-                        return;
-                    }
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        setLocalTemplate(prev => ({ ...prev, logoUrl: reader.result }));
-                    };
-                    reader.readAsDataURL(file);
+        const App = () => {
+            const [receipts, setReceipts] = useState(() => {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) return [];
+                try {
+                    return JSON.parse(stored);
+                } catch (error) {
+                    console.warn('Failed to parse stored receipts', error);
+                    return [];
                 }
-            };
-            
-            const handleSave = async () => {
-                setIsSaving(true);
-                await onSave(localTemplate);
-                setIsSaving(false);
-            }
-            
-            return (
-                <Modal onClose={onClose} size="xl">
-                    <div className="space-y-6">
-                        <h2 className="text-2xl font-bold text-gray-800">Edit Document Template</h2>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium">Company Name</label>
-                                <input type="text" name="companyName" value={localTemplate.companyName} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Header Title</label>
-                                <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <label className="block text-sm font-medium">Company Address</label>
-                            <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                        </div>
+            });
+            const [modal, setModal] = useState(null);
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium">Company Contact #</label>
-                                <input type="text" name="companyContact" value={localTemplate.companyContact} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Company Email</label>
-                                <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            </div>
+            useEffect(() => {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(receipts));
+            }, [receipts]);
+
+            const handleSaveReceipt = (receipt) => {
+                setReceipts(prev => [receipt, ...prev]);
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
+                    <header className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h1 className="text-2xl font-semibold">Warehouse Management Tool</h1>
+                            <p className="text-sm text-blue-100">Manage inventory deliveries and track manual receipts.</p>
                         </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 items-center">
-                            <div>
-                                <label className="block text-sm font-medium">Upload Logo</label>
-                                <input type="file" accept="image/*" onChange={handleFileChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Document Number Color</label>
-                                <input type="color" name="color" value={localTemplate.color} onChange={handleChange} className="w-full h-10 px-1 py-1 border rounded-lg" />
-                            </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
-                        </div>
-                        
-                        <div className="flex justify-end gap-4 pt-4 border-t">
-                            <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300">
-                                {isSaving ? 'Saving...' : 'Save Template'}
+                        <div className="flex flex-wrap gap-3">
+                            <button
+                                onClick={() => setModal('inventory')}
+                                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm hover:bg-blue-50"
+                            >
+                                Create Delivery Receipt
+                            </button>
+                            <button
+                                onClick={() => setModal('manual')}
+                                className="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-white/20"
+                            >
+                                Manual Receipt
+                            </button>
+                            <button
+                                onClick={() => setModal('reports')}
+                                className="rounded-lg bg-indigo-900/40 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900/60"
+                            >
+                                Reports
                             </button>
                         </div>
-                    </div>
-                </Modal>
+                    </header>
+                    <ReceiptManager receipts={receipts} />
+                    {modal === 'inventory' && (
+                        <InventoryReceiptModal onClose={() => setModal(null)} onSave={handleSaveReceipt} />
+                    )}
+                    {modal === 'manual' && (
+                        <ManualReceiptModal onClose={() => setModal(null)} onSave={handleSaveReceipt} />
+                    )}
+                    {modal === 'reports' && (
+                        <ReportsModal onClose={() => setModal(null)} receipts={receipts} />
+                    )}
+                </div>
             );
-        }
-
-        // Form for restocking inventory
-        const RestockForm = ({ inventory, initialCart, onSave, onClose, setNotification }) => {
-            const [cart, setCart] = useState(initialCart || []);
-            const [remarks, setRemarks] = useState('');
-            const [searchTerm, setSearchTerm] = useState('');
-            const [isSaving, setIsSaving] = useState(false);
-
-            const filteredInventory = useMemo(() => inventory.filter(i =>
-                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-            ), [inventory, searchTerm]);
-            
-            const addToCart = (item) => {
-                setCart(prev => {
-                    if (prev.find(i => i.id === item.id)) {
-                        setNotification({ type: 'info', message: `${item.name} is already in the list.` });
-                        return prev;
-                    }
-                    return [...prev, { ...item, restockQty: 10 }];
-                });
-            };
-
-            const updateCartQty = (id, qty) => setCart(prev => prev.map(i => i.id === id ? { ...i, restockQty: Math.max(0, Number(qty)) } : i));
-            const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
-
-            const handleSave = async () => {
-                const finalCart = cart.filter(i => i.restockQty > 0);
-                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
-                setIsSaving(true);
-                await onSave(finalCart, remarks);
-                setIsSaving(false);
-            };
-
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                         {/* Item List & Header */}
-                        <div className="lg:col-span-2 space-y-4">
-                            <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
-                           <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                            <div className="h-[50vh] overflow-y-auto border rounded-lg">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-50 z-10">
-                                        <tr>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Current Stock</th>
-                                            <th className="p-2"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredInventory.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
-                                                <td className="p-2">{item.qty}</td>
-                                                <td className="p-2 text-right">
-                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={cart.some(c => c.id === item.id)}>
-                                                        {cart.some(c => c.id === item.id) ? 'Added' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                         {/* Restock Cart Column */}
-                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                           <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
-                            <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Add Qty</th><th className="p-2"></th></tr></thead>
-                                    <tbody>
-                                        {cart.length > 0 ? cart.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2">{item.name}</td>
-                                                <td className="p-2"><input type="number" value={item.restockQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
-                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
-                                            </tr>
-                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">No items added to restock list.</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
-                           <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            <div className="flex justify-end gap-4 pt-4 border-t">
-                               <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                                <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
-                                    {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </Modal>
-            )
         };
 
-        // --- Main App Component ---
-        function App() {
-            // --- State Declarations ---
-            const [user, setUser] = useState(null);
-            const [isAuthReady, setIsAuthReady] = useState(false);
-            const [isAdminMode, setIsAdminMode] = useState(false);
-            const [inventory, setInventory] = useState([]);
-            const [sites, setSites] = useState([]);
-            const [deliveryReceipts, setDeliveryReceipts] = useState([]);
-            const [userOrders, setUserOrders] = useState([]);
-            const [restockCart, setRestockCart] = useState([]);
-            const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0 });
-            const [drTemplate, setDrTemplate] = useState({ 
-                title: 'DELIVERY RECEIPT', 
-                logoUrl: '', 
-                color: '#dc2626',
-                companyName: '', companyAddress: '', companyContact: '', companyEmail: '',
-                signatory1: 'Received by / Date', signatory2: 'Issued by', signatory3: '', signatory4: ''
-            });
-            const [isLoading, setIsLoading] = useState(true);
-            const [modal, setModal] = useState(null);
-            const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null); 
-            const [pendingReceipt, setPendingReceipt] = useState(null);
-            const [receiptToVoid, setReceiptToVoid] = useState(null);
-            const [searchTerm, setSearchTerm] = useState('');
-            
-            // --- Global App ID ---
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-            // --- Firebase Initialization and Auth Effect ---
-            useEffect(() => {
-                try {
-                    const firebaseConfig = typeof __firebase_config !== 'undefined'
-                        ? JSON.parse(__firebase_config)
-                        : {
-                            apiKey: "AIzaSyC9Tf7tOlZhYNe6ubDZ7JFJhsMswiimxPw",
-                            authDomain: "dlv-warehouse-tracker.firebaseapp.com",
-                            projectId: "dlv-warehouse-tracker",
-                            storageBucket: "dlv-warehouse-tracker.appspot.com",
-                            messagingSenderId: "267729758583",
-                            appId: "1:267729758583:web:f5f7ca26afc99c17819972",
-                            measurementId: "G-1DH9GT5RXS"
-                          };
-
-                    if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-                        setNotification({ type: 'error', message: 'Firebase configuration is missing or invalid. App cannot start.' });
-                        setIsAuthReady(true); setIsLoading(false); return;
-                    }
-                    
-                    const app = initializeApp(firebaseConfig);
-                    auth = getAuth(app);
-                    db = getFirestore(app);
-
-                    const unsubscribe = onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            setUser(user); setIsAuthReady(true);
-                        } else {
-                            const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                            const signInPromise = authToken ? signInWithCustomToken(auth, authToken) : signInAnonymously(auth);
-                            signInPromise.catch(e => {
-                                console.error("Sign-in failed", e);
-                                setNotification({type: 'error', message: `Authentication failed: ${e.message}`});
-                                setIsAuthReady(true);
-                            });
-                        }
-                    });
-                    return () => unsubscribe();
-                } catch (e) {
-                    console.error("CRITICAL: Firebase initialization failed.", e);
-                    setNotification({ type: 'error', message: `Failed to initialize backend. ${e.message}` });
-                    setIsAuthReady(true); setIsLoading(false);
-                }
-            }, []);
-
-            // --- Data Fetching Effect ---
-            useEffect(() => {
-                if (!isAuthReady || !user) return; 
-                
-                setIsLoading(true);
-                const basePath = `artifacts/${appId}/public/data`;
-                
-                const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Inventory snapshot error:", err));
-                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err));
-                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err));
-                const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("User Orders snapshot error:", err));
-                const unsubSettings = onSnapshot(doc(db, `${basePath}/settings/general`), (d) => { if (d.exists()) { setSettings(s => ({...s, ...d.data()})); } }, err => console.error("Settings snapshot error:", err));
-                const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } }, err => console.error("DR Template snapshot error:", err));
-
-                setIsLoading(false);
-
-                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubOrders(); unsubSettings(); unsubTemplate(); };
-            }, [isAuthReady, user, appId]);
-            
-            // --- Helper to log actions ---
-             const logAction = async (action, details) => {
-                 if(!db) return;
-                 try {
-                     await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
-                         timestamp: serverTimestamp(), action, details, user: isAdminMode ? 'Admin' : 'User' 
-                     });
-                 } catch (error) { console.error("Failed to log action:", error); }
-             };
-
-            // --- Business Logic Handlers ---
-            const handleSaveSite = async (siteData) => {
-                const path = `artifacts/${appId}/public/data/sites`;
-                try {
-                    if (siteData.id) { // Editing
-                        const { id, ...dataToSave } = siteData;
-                        await updateDoc(doc(db, path, id), dataToSave);
-                        setNotification({type: 'success', message: `Site "${siteData.name}" updated.`});
-                        await logAction('Site Updated', `Updated site: ${siteData.name}`);
-                    } else { // Adding
-                        await addDoc(collection(db, path), { ...siteData, lastDrNumber: 0, status: 'Active' });
-                        setNotification({type: 'success', message: `Site "${siteData.name}" added.`});
-                        await logAction('Site Added', `New site created: ${siteData.name}`);
-                    }
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to save site: ${e.message}`});
-                }
-            };
-
-            const handleFinishSite = async (site) => {
-                if (!site || site.status === 'Finished') return;
-                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
-                try {
-                    await updateDoc(siteRef, { status: 'Finished' });
-                    setNotification({type: 'success', message: `Site "${site.name}" marked as finished.`});
-                    await logAction('Site Finished', `Site ${site.name} was marked as finished.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
-                }
-            };
-
-            const handleReactivateSite = async (site) => {
-                if (!site || site.status !== 'Finished') return;
-                const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
-                try {
-                    await updateDoc(siteRef, { status: 'Active' });
-                    setNotification({type: 'success', message: `Site "${site.name}" has been re-activated.`});
-                    await logAction('Site Re-activated', `Site ${site.name} was marked as active.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
-                }
-            };
-            
-            const handleRestockItems = async (itemsToRestock, remarks) => {
-                 try {
-                     await runTransaction(db, async (transaction) => {
-                         for (const item of itemsToRestock) {
-                             const itemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                             transaction.update(itemRef, { qty: increment(item.restockQty) });
-                         }
-                     });
-                     
-                     const itemNames = itemsToRestock.map(i => `${i.name} (x${i.restockQty})`).join(', ');
-                     await logAction('Inventory Restocked', `Items: ${itemNames}. Remarks: ${remarks}`);
-                     setNotification({type: 'success', message: 'Inventory has been restocked.'});
-                     setRestockCart([]);
-                     closeModal();
-                 } catch(e) { console.error("Restock transaction failed:", e); setNotification({type: 'error', message: `Failed to restock items: ${e.message}`}); }
-            }
-
-            const handleSaveUserOrder = async (orderData) => {
-                const orderCollectionRef = collection(db, `artifacts/${appId}/public/data/userOrders`);
-                const settingsRef = doc(db, `artifacts/${appId}/public/data/settings/general`);
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const settingsDoc = await transaction.get(settingsRef);
-                        const lastOrderNumber = settingsDoc.exists() ? settingsDoc.data().lastOrderNumber || 0 : 0;
-                        const newOrderNumber = lastOrderNumber + 1;
-                        const orderNumberString = `REQ-${String(newOrderNumber).padStart(5, '0')}`;
-                        transaction.set(doc(orderCollectionRef), { ...orderData, orderNumber: orderNumberString, status: 'Pending', createdAt: serverTimestamp() });
-                        transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
-                    });
-                    
-                    setNotification({type: 'success', message: 'Your order has been submitted!'});
-                    await logAction('Order Submitted', `By user ${orderData.requestedBy}`);
-                    closeModal();
-                } catch (e) { console.error("User order save failed:", e); setNotification({type: 'error', message: `Failed to submit order: ${e.message}`}); }
-            };
-            
-            const handleUpdateOrderStatus = async (order) => {
-                if(!order) return;
-                const orderRef = doc(db, `artifacts/${appId}/public/data/userOrders`, order.id);
-                try {
-                    await updateDoc(orderRef, { status: 'Completed' });
-                    setNotification({type: 'success', message: `Order ${order.orderNumber} marked as completed.`});
-                    await logAction('Order Completed', `Order ${order.orderNumber}`);
-                } catch(e) { setNotification({type: 'error', message: `Failed to update order: ${e.message}`}); }
-            };
-            
-            const handleSaveReceipt = async (receiptData) => {
-                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
-                try {
-                    let finalDrNumber;
-                    await runTransaction(db, async (transaction) => {
-                        const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
-                        const siteDoc = await transaction.get(siteRef);
-                        if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
-
-                        const itemRefs = receiptData.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
-                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
-
-                        for(let i = 0; i < itemDocs.length; i++) {
-                            const invItemDoc = itemDocs[i];
-                            const requestedItem = receiptData.items[i];
-                             if (!invItemDoc.exists() || invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
-                             }
-                        }
-                        
-                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
-                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
-                        finalDrNumber = drNumberString;
-
-                        for (let i = 0; i < receiptData.items.length; i++) {
-                            transaction.update(itemRefs[i], { qty: increment(-receiptData.items[i].dispatchQty) });
-                        }
-
-                        transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
-                        transaction.update(siteRef, { lastDrNumber: increment(1) });
-                    });
-                    
-                    setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
-                    await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
-                    return true;
-                } catch (error) {
-                    console.error("Receipt save transaction failed: ", error);
-                    setNotification({ type: 'error', message: `Failed to save receipt: ${error.message}` });
-                    return false;
-                }
-            };
-            
-            const handlePreviewAndFinalize = (receiptData) => {
-                const selectedSite = sites.find(s => s.id === receiptData.siteId);
-                const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
-                const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
-
-                const dataForPreview = {
-                    ...receiptData,
-                    drNumber: drNumberString,
-                    siteName: selectedSite?.name || 'N/A',
-                    createdAt: { toDate: () => new Date() } // Mock server timestamp
-                };
-                setPendingReceipt(dataForPreview); // Store the data
-                setModal('receipt_confirm_and_preview'); // Open the confirmation preview modal
-            };
-
-            const handleVoidReceipt = async (receipt) => {
-                if (!receipt || receipt.status !== 'Active') {
-                    setReceiptToVoid(null); return;
-                }
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
-                        const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
-                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
-
-                        for (let i = 0; i < receipt.items.length; i++) {
-                            if (itemDocs[i].exists()) {
-                                transaction.update(itemRefs[i], { qty: increment(receipt.items[i].dispatchQty) });
-                            }
-                        }
-                        transaction.update(receiptRef, { status: 'Voided' });
-                    });
-                    
-                    await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
-                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
-                    setReceiptToVoid(null);
-                    closeModal(); 
-                } catch(e) { console.error("Void receipt transaction failed:", e); setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`}); setReceiptToVoid(null); }
-            };
-
-            const handleFinishReceipt = async (receipt) => {
-                if (!receipt || receipt.status !== 'Active') return;
-                const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
-                try {
-                    await updateDoc(receiptRef, { status: 'Finished' });
-                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.`});
-                    await logAction('Receipt Finished', `DR ${receipt.drNumber} was marked as finished.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update receipt status: ${e.message}`});
-                }
-            };
-            
-            // --- CRUD Handlers ---
-            const handleSaveItem = async (item) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                try {
-                    // Normalize inputs for comparison
-                    const itemNameLower = item.name.trim().toLowerCase();
-                    const itemBrandLower = (item.brand || '').trim().toLowerCase();
-                    const itemSkuLower = item.sku.trim().toLowerCase();
-
-                    if (item.id) { // Editing existing item
-                        const conflictingSku = inventory.find(invItem =>
-                            invItem.id !== item.id && invItem.sku.trim().toLowerCase() === itemSkuLower
-                        );
-                        if (conflictingSku) {
-                            setNotification({ type: 'error', message: `SKU "${item.sku}" is already used by another item.` });
-                            return;
-                        }
-
-                        const conflictingNameAndBrand = inventory.find(invItem =>
-                            invItem.id !== item.id &&
-                            invItem.name.trim().toLowerCase() === itemNameLower &&
-                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
-                        );
-                        if (conflictingNameAndBrand) {
-                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
-                            return;
-                        }
-
-                        const { id, qty, ...itemData } = item;
-                        await updateDoc(doc(db, path, id), itemData);
-                        await logAction('Item Updated', `Updated details for "${item.name}" (SKU: ${item.sku})`);
-                        setNotification({ type: 'success', message: 'Item details successfully updated.' });
-                    } else { // Adding new item
-                        const conflictingSku = inventory.find(invItem => invItem.sku.trim().toLowerCase() === itemSkuLower);
-                        if (conflictingSku) {
-                            setNotification({ type: 'error', message: `SKU "${item.sku}" already exists. Please use a unique SKU.` });
-                            return;
-                        }
-
-                        const conflictingNameAndBrand = inventory.find(invItem =>
-                            invItem.name.trim().toLowerCase() === itemNameLower &&
-                            (invItem.brand || '').trim().toLowerCase() === itemBrandLower
-                        );
-                        if (conflictingNameAndBrand) {
-                            setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
-                            return;
-                        }
-                        
-                        await addDoc(collection(db, path), item);
-                        await logAction('Item Added', `Added new item "${item.name}" (SKU: ${item.sku}) with initial quantity ${item.qty}`);
-                        setNotification({ type: 'success', message: 'Item successfully added.' });
-                    }
-                    closeModal();
-                } catch (e) { console.error("Save item error:", e); setNotification({ type: 'error', message: `Failed to save item: ${e.message}` }); }
-            };
-
-            const handleDeleteItem = async (id, name) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                try {
-                    await deleteDoc(doc(db, path, id));
-                    await logAction('Item Deleted', `Deleted item "${name}"`);
-                    setNotification({type: 'success', message: 'Item successfully deleted.'});
-                } catch (e) { console.error("Delete error:", e); setNotification({type: 'error', message: `Failed to delete item: ${e.message}`}); }
-            };
-
-            const handleAdjustStock = async (item, adjustment) => {
-                const path = `artifacts/${appId}/public/data/inventory`;
-                const newQty = item.qty + adjustment;
-                if (newQty < 0) {
-                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."}); return;
-                }
-                try {
-                    const itemRef = doc(db, path, item.id);
-                    await updateDoc(itemRef, { qty: increment(adjustment) });
-                    await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
-                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
-                    closeModal();
-                } catch (e) { console.error("Stock adjustment error:", e); setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`}); }
-            };
-            
-            const handleSaveSettings = async (newSettings) => {
-                 try {
-                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), newSettings, { merge: true });
-                     await logAction('Settings Updated', 'Admin password or reorder level changed.');
-                     setNotification({type: 'success', message: 'Settings saved successfully!'});
-                     closeModal();
-                 } catch (e) { console.error("Settings save error:", e); setNotification({type: 'error', message: `Failed to save settings: ${e.message}`}); }
-            };
-            
-            const handleSaveDrTemplate = async (newTemplate) => {
-                try {
-                    await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'dr_template'), newTemplate);
-                    await logAction('DR Template Updated', 'Delivery receipt template was modified.');
-                    setNotification({type: 'success', message: 'DR Template saved!'});
-                    closeModal();
-                } catch (e) { console.error("DR Template save error:", e); setNotification({type: 'error', message: `Failed to save template: ${e.message}`}); }
-            };
-            
-            // --- Restock Cart ---
-            const handleAddToRestockCart = (item) => {
-                setRestockCart(prev => {
-                     if (prev.find(i => i.id === item.id)) {
-                         setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
-                         return prev;
-                     }
-                    return [...prev, { ...item, restockQty: 10 }];
-                });
-            }
-
-            // --- Auth & Modal Handlers ---
-            const handleAdminLogin = (password) => {
-                if (password === settings.adminPass) {
-                    setIsAdminMode(true);
-                    closeModal();
-                    setNotification({type: 'success', message: 'Admin mode unlocked!'});
-                } else {
-                    setNotification({type: 'error', message: 'Incorrect admin password.'});
-                }
-            };
-            
-            const openModal = (type, item = null) => {
-                setCurrentItem(item);
-                setModal(type);
-            };
-
-            const closeModal = () => {
-                setModal(null);
-                setCurrentItem(null);
-            };
-
-            // --- Render Logic ---
-            if (!isAuthReady || isLoading) return <Spinner text={!isAuthReady ? "Initializing..." : "Loading data..."} />;
-            
-            const drManagerActions = isAdminMode ? [
-                {
-                    label: "Mark as Finished",
-                    handler: handleFinishReceipt,
-                    disabled: (r) => r.status !== 'Active',
-                    className: "text-blue-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
-                },
-                {
-                    label: "Void",
-                    handler: (r) => setReceiptToVoid(r),
-                    disabled: (r) => r.status !== 'Active',
-                    className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
-                }
-            ] : [];
-
-            return (
-                <>
-                    <div className="min-h-screen font-sans text-gray-800">
-                        <style>{`
-                            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
-                            body { font-family: 'Poppins', sans-serif; } 
-                            @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-                            .animate-scale-in{animation:scale-in .2s ease-out forwards} 
-                            
-                            @media print {
-                                body > :not(#print-area) { display: none !important; }
-                                #print-area { display: block !important; }
-                            }
-                        `}</style>
-                        
-                        <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-                            <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
-                                <div>
-                                    <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
-                                    <p className="text-gray-500 mt-1">
-                                        Status: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator Mode" : "User Mode"}</span>
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                     <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
-                                         {isAdminMode ? '🔓' : '🛡️'}
-                                     </button>
-                                     
-                                     {isAdminMode ? (
-                                         <>
-                                             <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
-                                             <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
-                                             <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
-                                             <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
-                                             <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
-                                             <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
-                                                 Restock Items
-                                                 {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
-                                             </button>
-                                         </>
-                                     ) : (
-                                         <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
-                                     )}
-                                     
-                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
-                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
-                                </div>
-                            </header>
-                            
-                            <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                <div className="lg:col-span-3"><StatsWidget inventory={inventory} /></div>
-                                <LowStockWidget inventory={inventory} settings={settings} onRestock={handleAddToRestockCart} setNotification={setNotification} />
-                                <AllInventoryWidget 
-                                    inventory={inventory}
-                                    onEdit={(item) => openModal('item', item)} 
-                                    onDelete={handleDeleteItem} 
-                                    onAdjustStock={(item) => openModal('stock', item)}
-                                    isLoading={isLoading} 
-                                    searchTerm={searchTerm} 
-                                    setSearchTerm={setSearchTerm} 
-                                    isAdminMode={isAdminMode}
-                                    settings={settings} 
-                                />
-                                 <LogsWidget isLoading={isLoading} appId={appId} />
-                            </main>
-                        </div>
-                    </div>
-
-                    {/* --- Modals Layer --- */}
-                    {notification && <NotificationModal message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
-                    
-                    <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt"/>
-
-                    {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} /></Modal>}
-                    {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
-                    {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
-                    {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'receipt' && <DeliveryReceiptForm inventory={inventory} sites={sites} onFinalize={handlePreviewAndFinalize} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
-                    {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
-
-                    {modal === 'dr_manager' && <DocumentHistoryModal documents={deliveryReceipts} onClose={closeModal} openDetailView={(r) => openModal('dr_detail', r)} title="Delivery Receipt Manager" actions={drManagerActions} type="dr_manager"/>}
-                    {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
-
-                    {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
-                    {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
-                    
-                    {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
-                        <ReceiptDetailView 
-                            receipt={pendingReceipt} 
-                            template={drTemplate} 
-                            isPreview={true} 
-                            onConfirm={() => handleSaveReceipt(pendingReceipt)}
-                            onCancel={() => { setPendingReceipt(null); setModal('receipt')}}
-                            onDone={() => { setPendingReceipt(null); closeModal(); }}
-                            confirmText="Save & Prepare for Printing"
-                        />
-                    )}
-
-                </>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
