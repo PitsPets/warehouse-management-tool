@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warehouse Management</title>
+    <title>Warehouse Management Tool</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -12,7 +12,12 @@
 <body class="bg-slate-100 min-h-screen">
     <div id="root"></div>
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+        const { useState, useMemo, useEffect, useCallback } = React;
+
+        const STORAGE_KEYS = {
+            receipts: 'wm_receipts_v2',
+            units: 'wm_units_v2'
+        };
 
         const DEFAULT_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
 
@@ -23,37 +28,77 @@
             { sku: 'SKU-1004', name: 'Protective Gloves', price: 45, stock: 210, units: ['PC/s', 'Set/s'] }
         ];
 
-        const STORAGE_KEY = 'wm_receipts_v1';
+        const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(value) || 0);
 
-        const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
-
-        const formatUnitDisplay = (quantity, unit) => {
+        const pluralizeUnit = (quantity, unit) => {
             if (!unit) return '';
             const qty = Number(quantity) || 0;
             if (qty === 1) {
-                return unit.replace(/\/s$/i, '').replace(/s$/i, '');
+                return unit.includes('/') ? unit : unit.replace(/s$/i, '');
             }
-            if (/s$/i.test(unit)) return unit;
-            return unit + 's';
+            if (unit.endsWith('/s') || /s$/i.test(unit)) {
+                return unit;
+            }
+            if (/x$/i.test(unit)) {
+                return `${unit}es`;
+            }
+            return `${unit}s`;
         };
 
-        const Modal = ({ title, onClose, children, actions, size = 'xl' }) => (
-            <div className="fixed inset-0 z-50 flex items-center justify-center">
+        const formatDateTime = (value) => {
+            try {
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) return value;
+                return date.toLocaleString();
+            } catch (error) {
+                return value;
+            }
+        };
+
+        const loadFromStorage = (key, fallback) => {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return fallback;
+                const parsed = JSON.parse(raw);
+                return parsed ?? fallback;
+            } catch (error) {
+                console.warn('Failed to read storage', key, error);
+                return fallback;
+            }
+        };
+
+        const usePersistentState = (key, fallback) => {
+            const [value, setValue] = useState(() => loadFromStorage(key, fallback));
+            useEffect(() => {
+                localStorage.setItem(key, JSON.stringify(value));
+            }, [key, value]);
+            return [value, setValue];
+        };
+
+        const ensureDefaultUnit = (units) => {
+            const normalized = Array.from(new Set(units.map((unit) => unit.trim()).filter(Boolean)));
+            if (!normalized.some((unit) => unit.toLowerCase() === 'pc/s')) {
+                normalized.unshift('PC/s');
+            }
+            return normalized;
+        };
+
+        const Modal = ({ title, description, onClose, actions, size = 'xl', children }) => (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
                 <div className="absolute inset-0 bg-slate-900/40" onClick={onClose}></div>
-                <div className={`relative bg-white shadow-xl rounded-xl w-full max-h-[90vh] overflow-hidden ${size === '2xl' ? 'max-w-5xl' : size === 'lg' ? 'max-w-3xl' : 'max-w-6xl'}`}>
-                    <div className="flex items-start justify-between px-6 py-4 border-b border-slate-200">
+                <div className={`relative flex w-full max-h-[92vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ${size === 'lg' ? 'max-w-3xl' : size === '2xl' ? 'max-w-5xl' : 'max-w-6xl'}`}>
+                    <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
                         <div>
                             <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-                            <p className="text-sm text-slate-500">Warehouse Management Tool</p>
+                            {description && <p className="text-sm text-slate-500">{description}</p>}
                         </div>
-                        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-                            <span className="sr-only">Close</span>
+                        <button onClick={onClose} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
                             &times;
                         </button>
                     </div>
-                    <div className="overflow-y-auto max-h-[70vh] px-6 py-4 bg-slate-50">{children}</div>
+                    <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-5">{children}</div>
                     {actions && (
-                        <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end space-x-3">
+                        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
                             {actions}
                         </div>
                     )}
@@ -61,46 +106,217 @@
             </div>
         );
 
-        const InventoryTable = ({ items, onAdd }) => {
-            const [filters, setFilters] = useState({ search: '' });
-            const filtered = useMemo(() => {
-                const term = filters.search.trim().toLowerCase();
-                if (!term) return items;
-                return items.filter(item => [item.sku, item.name].some(v => v.toLowerCase().includes(term)));
-            }, [items, filters.search]);
+        const StatCard = ({ label, value, accent = 'blue' }) => (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="mt-3 text-2xl font-semibold text-slate-800">{value}</p>
+            </div>
+        );
+
+        const ReceiptPreviewTable = ({ items, editable = false, onChangeRow, onRemoveRow, units, maxHeight = 'max-h-[60vh]' }) => {
+            const total = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
             return (
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                <div className={`flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm`}>
+                    <div className="border-b border-slate-200 bg-slate-100 px-4 py-3">
+                        <p className="text-sm font-semibold text-slate-700">Delivery Receipt Preview</p>
+                    </div>
+                    <div className={`overflow-y-auto ${maxHeight}`}>
+                        <table className="min-w-full table-fixed text-sm">
+                            <thead className="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th className="w-20 px-3 py-2 text-left">Qty</th>
+                                    <th className="w-24 px-3 py-2 text-left">Unit</th>
+                                    <th className="px-3 py-2 text-left">Description</th>
+                                    <th className="w-28 px-3 py-2 text-right">Unit Price</th>
+                                    <th className="w-28 px-3 py-2 text-right">Amount</th>
+                                    {editable && <th className="w-16 px-3 py-2"></th>}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 text-slate-700">
+                                {items.length === 0 && (
+                                    <tr>
+                                        <td colSpan={editable ? 6 : 5} className="px-3 py-8 text-center text-slate-400">No items yet.</td>
+                                    </tr>
+                                )}
+                                {items.map((item, index) => (
+                                    <tr key={index} className="align-top">
+                                        <td className="px-3 py-2">
+                                            {editable ? (
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity}
+                                                    onChange={(event) => onChangeRow(index, { quantity: Number(event.target.value) })}
+                                                    className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                                />
+                                            ) : (
+                                                <span>{item.quantity}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            {editable ? (
+                                                <select
+                                                    value={item.unit}
+                                                    onChange={(event) => onChangeRow(index, { unit: event.target.value })}
+                                                    className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                                >
+                                                    {units.map((option) => (
+                                                        <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <span>{pluralizeUnit(item.quantity, item.unit)}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            {editable ? (
+                                                <textarea
+                                                    value={item.description}
+                                                    onChange={(event) => onChangeRow(index, { description: event.target.value })}
+                                                    rows={2}
+                                                    className="w-full resize-none rounded border border-slate-300 px-2 py-1 text-sm leading-snug"
+                                                />
+                                            ) : (
+                                                <span className="break-words">{item.description}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            {editable ? (
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={item.price}
+                                                    onChange={(event) => onChangeRow(index, { price: Number(event.target.value) })}
+                                                    className="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                                                />
+                                            ) : (
+                                                <span>{formatCurrency(item.price)}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-right text-slate-800">{formatCurrency(item.amount)}</td>
+                                        {editable && (
+                                            <td className="px-3 py-2 text-right">
+                                                <button
+                                                    onClick={() => onRemoveRow(index)}
+                                                    className="text-sm font-medium text-rose-500 transition hover:text-rose-600"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot className="bg-slate-100 text-slate-700">
+                                <tr>
+                                    <td colSpan={editable ? 4 : 4} className="px-3 py-2 text-right font-semibold">Grand Total</td>
+                                    <td className="px-3 py-2 text-right text-base font-semibold">{formatCurrency(total)}</td>
+                                    {editable && <td className="px-3 py-2"></td>}
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const InventoryTable = ({ items, units, onAdd }) => {
+            const [search, setSearch] = useState('');
+            const [rowState, setRowState] = useState(() => Object.fromEntries(items.map((item) => [item.sku, { quantity: 1, unit: item.units?.[0] || units[0] }])));
+
+            const filteredItems = useMemo(() => {
+                const term = search.trim().toLowerCase();
+                if (!term) return items;
+                return items.filter((item) => [item.sku, item.name].some((field) => field.toLowerCase().includes(term)));
+            }, [items, search]);
+
+            const handleChange = (sku, changes) => {
+                setRowState((previous) => ({ ...previous, [sku]: { ...previous[sku], ...changes } }));
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <h3 className="text-base font-semibold text-slate-700">Inventory</h3>
                         <input
                             type="search"
-                            value={filters.search}
-                            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                            placeholder="Search SKU or Name"
-                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search SKU or item name"
+                            className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                     </div>
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
                         <table className="min-w-full divide-y divide-slate-200 text-sm">
-                            <thead className="bg-slate-100">
+                            <thead className="bg-slate-100 text-slate-600">
                                 <tr>
-                                    <th className="px-3 py-2 text-left font-medium text-slate-600">SKU</th>
-                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Name</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Stock</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Unit Price</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-600">Add</th>
+                                    <th className="px-3 py-2 text-left">SKU</th>
+                                    <th className="px-3 py-2 text-left">Name</th>
+                                    <th className="px-3 py-2 text-right">Unit Price</th>
+                                    <th className="px-3 py-2 text-right">Issuing Unit</th>
+                                    <th className="px-3 py-2 text-right">Quantity</th>
+                                    <th className="px-3 py-2 text-right">Action</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200">
-                                {filtered.length === 0 && (
+                            <tbody className="divide-y divide-slate-200 text-slate-700">
+                                {filteredItems.length === 0 && (
                                     <tr>
-                                        <td colSpan="5" className="px-3 py-6 text-center text-slate-400">No items found.</td>
+                                        <td colSpan="6" className="px-3 py-8 text-center text-slate-400">No matching inventory items.</td>
                                     </tr>
                                 )}
-                                {filtered.map(item => (
-                                    <InventoryRow key={item.sku} item={item} onAdd={onAdd} />
-                                ))}
+                                {filteredItems.map((item) => {
+                                    const state = rowState[item.sku] || { quantity: 1, unit: item.units?.[0] || units[0] };
+                                    return (
+                                        <tr key={item.sku} className="align-middle">
+                                            <td className="px-3 py-2 font-semibold text-slate-800">{item.sku}</td>
+                                            <td className="px-3 py-2">
+                                                <div className="font-medium">{item.name}</div>
+                                                <div className="text-xs text-slate-400">{item.units?.join(', ') || 'PC/s'}</div>
+                                            </td>
+                                            <td className="px-3 py-2 text-right">{formatCurrency(item.price)}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <select
+                                                    value={state.unit}
+                                                    onChange={(event) => handleChange(item.sku, { unit: event.target.value })}
+                                                    className="w-28 rounded border border-slate-300 px-2 py-1 text-sm"
+                                                >
+                                                    {(item.units?.length ? item.units : units).map((unit) => (
+                                                        <option key={unit} value={unit}>{unit}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={state.quantity}
+                                                    onChange={(event) => handleChange(item.sku, { quantity: Number(event.target.value) })}
+                                                    className="w-24 rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                                                />
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                <button
+                                                    onClick={() => {
+                                                        if (state.quantity <= 0) return;
+                                                        onAdd({
+                                                            sku: item.sku,
+                                                            description: item.name,
+                                                            unit: state.unit,
+                                                            quantity: state.quantity,
+                                                            price: item.price,
+                                                            amount: Number(item.price) * Number(state.quantity)
+                                                        });
+                                                        handleChange(item.sku, { quantity: 1 });
+                                                    }}
+                                                    className="rounded bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                                                >
+                                                    Add
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -108,134 +324,29 @@
             );
         };
 
-        const InventoryRow = ({ item, onAdd }) => {
-            const [quantity, setQuantity] = useState(1);
-            const [unit, setUnit] = useState(item.units?.[0] || 'PC/s');
-
-            const handleAdd = () => {
-                if (quantity <= 0) return;
-                onAdd({
-                    sku: item.sku,
-                    description: item.name,
-                    price: item.price,
-                    quantity,
-                    unit,
-                    amount: Number(quantity) * Number(item.price)
-                });
-                setQuantity(1);
-            };
-
-            return (
-                <tr>
-                    <td className="px-3 py-2 align-top">
-                        <div className="font-semibold text-slate-700">{item.sku}</div>
-                        <div className="text-xs text-slate-500">{item.units?.join(', ') || 'PC/s'}</div>
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">{item.name}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{item.stock}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{formatCurrency(item.price)}</td>
-                    <td className="px-3 py-2">
-                        <div className="flex items-center justify-end space-x-2">
-                            <input
-                                type="number"
-                                min="1"
-                                value={quantity}
-                                onChange={(e) => setQuantity(Number(e.target.value))}
-                                className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm"
-                            />
-                            <select
-                                value={unit}
-                                onChange={(e) => setUnit(e.target.value)}
-                                className="rounded border border-slate-300 px-2 py-1 text-sm"
-                            >
-                                {(item.units?.length ? item.units : DEFAULT_UNITS).map(option => (
-                                    <option key={option} value={option}>{option}</option>
-                                ))}
-                            </select>
-                            <button
-                                onClick={handleAdd}
-                                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                            >
-                                Add
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            );
-        };
-
-        const ReceiptPreview = ({ items, meta }) => {
-            const total = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-            return (
-                <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-slate-200 bg-slate-100">
-                        <h4 className="text-base font-semibold text-slate-700">Delivery Receipt Preview</h4>
-                        <p className="text-xs text-slate-500">{meta.reference || 'Draft'} &bull; {meta.site || 'Main Warehouse'}</p>
-                    </div>
-                    <div className="px-4 py-3">
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full text-sm">
-                                <thead className="bg-slate-100">
-                                    <tr className="text-left text-slate-600">
-                                        <th className="px-3 py-2 w-16">Qty</th>
-                                        <th className="px-3 py-2 w-24">Unit</th>
-                                        <th className="px-3 py-2">Description</th>
-                                        <th className="px-3 py-2 w-32 text-right">Unit Price</th>
-                                        <th className="px-3 py-2 w-32 text-right">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200">
-                                    {items.length === 0 && (
-                                        <tr>
-                                            <td colSpan="5" className="px-3 py-6 text-center text-slate-400">No items yet.</td>
-                                        </tr>
-                                    )}
-                                    {items.map((item, idx) => (
-                                        <tr key={idx} className="text-slate-700">
-                                            <td className="px-3 py-2">{item.quantity}</td>
-                                            <td className="px-3 py-2">{formatUnitDisplay(item.quantity, item.unit)}</td>
-                                            <td className="px-3 py-2 break-words">{item.description}</td>
-                                            <td className="px-3 py-2 text-right">{formatCurrency(item.price)}</td>
-                                            <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot className="bg-slate-50">
-                                    <tr>
-                                        <td colSpan="4" className="px-3 py-2 text-right font-semibold text-slate-600">Grand Total</td>
-                                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{formatCurrency(total)}</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        const CartTable = ({ items, onUpdate, onRemove }) => (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        const CartTable = ({ items, units, onUpdate, onRemove }) => (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-100 text-slate-600">
                         <tr>
                             <th className="px-3 py-2 text-left">Description</th>
-                            <th className="px-3 py-2 text-right w-24">Qty</th>
-                            <th className="px-3 py-2 w-28">Unit</th>
-                            <th className="px-3 py-2 text-right w-32">Unit Price</th>
-                            <th className="px-3 py-2 text-right w-32">Amount</th>
-                            <th className="px-3 py-2 w-16"></th>
+                            <th className="w-20 px-3 py-2 text-right">Qty</th>
+                            <th className="w-24 px-3 py-2 text-left">Unit</th>
+                            <th className="w-28 px-3 py-2 text-right">Unit Price</th>
+                            <th className="w-28 px-3 py-2 text-right">Amount</th>
+                            <th className="w-16 px-3 py-2"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-slate-700">
                         {items.length === 0 && (
                             <tr>
-                                <td colSpan="6" className="px-3 py-6 text-center text-slate-400">No items added.</td>
+                                <td colSpan="6" className="px-3 py-8 text-center text-slate-400">No items added yet.</td>
                             </tr>
                         )}
-                        {items.map((item, idx) => (
-                            <tr key={idx}>
+                        {items.map((item, index) => (
+                            <tr key={`${item.sku}-${index}`} className="align-middle">
                                 <td className="px-3 py-2">
-                                    <div className="font-medium">{item.description}</div>
+                                    <div className="font-medium text-slate-800">{item.description}</div>
                                     {item.sku && <div className="text-xs text-slate-400">{item.sku}</div>}
                                 </td>
                                 <td className="px-3 py-2 text-right">
@@ -243,18 +354,18 @@
                                         type="number"
                                         min="1"
                                         value={item.quantity}
-                                        onChange={(e) => onUpdate(idx, { quantity: Number(e.target.value) })}
+                                        onChange={(event) => onUpdate(index, { quantity: Number(event.target.value) })}
                                         className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm"
                                     />
                                 </td>
                                 <td className="px-3 py-2">
                                     <select
                                         value={item.unit}
-                                        onChange={(e) => onUpdate(idx, { unit: e.target.value })}
+                                        onChange={(event) => onUpdate(index, { unit: event.target.value })}
                                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                                     >
-                                        {DEFAULT_UNITS.map(option => (
-                                            <option key={option} value={option}>{option}</option>
+                                        {units.map((unit) => (
+                                            <option key={unit} value={unit}>{unit}</option>
                                         ))}
                                     </select>
                                 </td>
@@ -263,15 +374,15 @@
                                         type="number"
                                         min="0"
                                         value={item.price}
-                                        onChange={(e) => onUpdate(idx, { price: Number(e.target.value) })}
+                                        onChange={(event) => onUpdate(index, { price: Number(event.target.value) })}
                                         className="w-24 rounded border border-slate-300 px-2 py-1 text-right text-sm"
                                     />
                                 </td>
-                                <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
+                                <td className="px-3 py-2 text-right font-semibold text-slate-800">{formatCurrency(item.amount)}</td>
                                 <td className="px-3 py-2 text-right">
                                     <button
-                                        onClick={() => onRemove(idx)}
-                                        className="text-sm text-rose-500 hover:text-rose-600"
+                                        onClick={() => onRemove(index)}
+                                        className="text-sm font-medium text-rose-500 transition hover:text-rose-600"
                                     >
                                         Remove
                                     </button>
@@ -283,32 +394,30 @@
             </div>
         );
 
-        const InventoryReceiptModal = ({ onClose, onSave }) => {
-            const [cart, setCart] = useState([]);
+        const InventoryReceiptModal = ({ onClose, onSave, units }) => {
             const [site, setSite] = useState('Main Warehouse');
-            const [reference, setReference] = useState('DR-' + Date.now());
+            const [reference, setReference] = useState(`DR-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`);
+            const [cart, setCart] = useState([]);
 
-            const handleAdd = (item) => {
-                setCart(prev => {
-                    const index = prev.findIndex(entry => entry.description === item.description && entry.unit === item.unit);
+            const addToCart = useCallback((item) => {
+                setCart((previous) => {
+                    const index = previous.findIndex((row) => row.sku === item.sku && row.unit === item.unit);
                     if (index !== -1) {
-                        const updated = [...prev];
-                        const existing = updated[index];
-                        const quantity = Number(existing.quantity) + Number(item.quantity);
-                        updated[index] = {
-                            ...existing,
-                            quantity,
-                            amount: quantity * existing.price
-                        };
+                        const updated = [...previous];
+                        const current = { ...updated[index] };
+                        const quantity = Number(current.quantity) + Number(item.quantity);
+                        current.quantity = quantity;
+                        current.amount = quantity * Number(current.price);
+                        updated[index] = current;
                         return updated;
                     }
-                    return [...prev, { ...item }];
+                    return [...previous, item];
                 });
-            };
+            }, []);
 
             const updateCart = (index, changes) => {
-                setCart(prev => {
-                    const updated = [...prev];
+                setCart((previous) => {
+                    const updated = [...previous];
                     const current = { ...updated[index], ...changes };
                     current.amount = Number(current.quantity || 0) * Number(current.price || 0);
                     updated[index] = current;
@@ -316,19 +425,20 @@
                 });
             };
 
-            const removeItem = (index) => setCart(prev => prev.filter((_, idx) => idx !== index));
+            const removeCartRow = (index) => setCart((previous) => previous.filter((_, idx) => idx !== index));
 
             const handleSave = () => {
                 if (cart.length === 0) {
-                    alert('Please add at least one item.');
+                    alert('Please add at least one inventory item.');
                     return;
                 }
+
                 onSave({
                     id: crypto.randomUUID(),
                     number: reference,
                     createdAt: new Date().toISOString(),
-                    type: 'Inventory',
                     site,
+                    type: 'Inventory',
                     items: cart,
                     total: cart.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
                 });
@@ -338,54 +448,59 @@
             return (
                 <Modal
                     title="Create Delivery Receipt"
+                    description="Search inventory, add items with the correct unit, and preview the paper layout before saving."
                     onClose={onClose}
                     actions={[
-                        <button key="cancel" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">Cancel</button>,
-                        <button key="save" onClick={handleSave} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Receipt</button>
+                        <button key="cancel" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>,
+                        <button key="save" onClick={handleSave} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Save Receipt</button>
                     ]}
                 >
                     <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-6">
-                            <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                 <label className="text-sm font-medium text-slate-600">
                                     Receipt Number
                                     <input
-                                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         value={reference}
-                                        onChange={(e) => setReference(e.target.value)}
+                                        onChange={(event) => setReference(event.target.value)}
                                     />
                                 </label>
                                 <label className="text-sm font-medium text-slate-600">
                                     Site / Project
                                     <input
-                                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         value={site}
-                                        onChange={(e) => setSite(e.target.value)}
+                                        onChange={(event) => setSite(event.target.value)}
                                     />
                                 </label>
                             </div>
-                            <InventoryTable items={SAMPLE_INVENTORY} onAdd={handleAdd} />
+                            <InventoryTable items={SAMPLE_INVENTORY} units={units} onAdd={addToCart} />
                         </div>
                         <div className="space-y-4">
                             <h3 className="text-base font-semibold text-slate-700">Items Added</h3>
-                            <CartTable items={cart} onUpdate={updateCart} onRemove={removeItem} />
-                            <ReceiptPreview items={cart} meta={{ site, reference }} />
+                            <CartTable items={cart} units={units} onUpdate={updateCart} onRemove={removeCartRow} />
+                            <ReceiptPreviewTable items={cart} units={units} />
                         </div>
                     </div>
                 </Modal>
             );
         };
 
-        const ManualReceiptModal = ({ onClose, onSave }) => {
-            const [rows, setRows] = useState([
-                { description: '', quantity: 1, unit: 'PC/s', price: 0, amount: 0 }
-            ]);
+        const ManualReceiptModal = ({ onClose, onSave, units }) => {
             const [site, setSite] = useState('Main Warehouse');
-            const [reference, setReference] = useState('MAN-' + Date.now());
+            const [reference, setReference] = useState(`MAN-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`);
+            const [rows, setRows] = useState([
+                { description: '', quantity: 1, unit: units[0], price: 0, amount: 0 }
+            ]);
+
+            useEffect(() => {
+                setRows((previous) => previous.map((row) => ({ ...row, unit: units.includes(row.unit) ? row.unit : units[0] })));
+            }, [units]);
 
             const updateRow = (index, changes) => {
-                setRows(prev => {
-                    const updated = [...prev];
+                setRows((previous) => {
+                    const updated = [...previous];
                     const current = { ...updated[index], ...changes };
                     current.amount = Number(current.quantity || 0) * Number(current.price || 0);
                     updated[index] = current;
@@ -393,20 +508,20 @@
                 });
             };
 
-            const addRow = () => setRows(prev => [...prev, { description: '', quantity: 1, unit: 'PC/s', price: 0, amount: 0 }]);
-            const removeRow = (index) => setRows(prev => prev.filter((_, idx) => idx !== index));
+            const removeRow = (index) => setRows((previous) => previous.filter((_, idx) => idx !== index));
+            const addRow = () => setRows((previous) => [...previous, { description: '', quantity: 1, unit: units[0], price: 0, amount: 0 }]);
 
             const handleSave = () => {
                 const cleaned = rows
-                    .map(row => ({
+                    .map((row) => ({
                         ...row,
                         description: row.description.trim(),
                         amount: Number(row.quantity || 0) * Number(row.price || 0)
                     }))
-                    .filter(row => row.description && Number(row.quantity) > 0);
+                    .filter((row) => row.description && Number(row.quantity) > 0);
 
                 if (cleaned.length === 0) {
-                    alert('Please provide at least one complete row.');
+                    alert('Please enter at least one manual line.');
                     return;
                 }
 
@@ -414,10 +529,10 @@
                     id: crypto.randomUUID(),
                     number: reference,
                     createdAt: new Date().toISOString(),
-                    type: 'Manual',
                     site,
+                    type: 'Manual',
                     items: cleaned,
-                    total: cleaned.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                    total: cleaned.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
                 });
                 onClose();
             };
@@ -425,154 +540,103 @@
             return (
                 <Modal
                     title="Manual Delivery Receipt"
+                    description="Type rows directly into the paper-style preview. Long lists stay scrollable while the header remains visible."
                     onClose={onClose}
                     actions={[
-                        <button key="cancel" onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">Cancel</button>,
-                        <button key="save" onClick={handleSave} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Receipt</button>
+                        <button key="cancel" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>,
+                        <button key="add-row" onClick={addRow} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-600 hover:border-blue-400 hover:text-blue-700">Add Row</button>,
+                        <button key="save" onClick={handleSave} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Save Receipt</button>
                     ]}
+                    size="2xl"
                 >
                     <div className="space-y-6">
-                        <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 lg:grid-cols-2">
+                        <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2">
                             <label className="text-sm font-medium text-slate-600">
                                 Receipt Number
                                 <input
-                                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     value={reference}
-                                    onChange={(e) => setReference(e.target.value)}
+                                    onChange={(event) => setReference(event.target.value)}
                                 />
                             </label>
                             <label className="text-sm font-medium text-slate-600">
                                 Site / Project
                                 <input
-                                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     value={site}
-                                    onChange={(e) => setSite(e.target.value)}
+                                    onChange={(event) => setSite(event.target.value)}
                                 />
                             </label>
                         </div>
-                        <div className="space-y-4">
-                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                                <table className="min-w-full divide-y divide-slate-200 text-sm">
-                                    <thead className="bg-slate-100 text-slate-600">
-                                        <tr>
-                                            <th className="px-3 py-2 w-20 text-left">Qty</th>
-                                            <th className="px-3 py-2 w-24 text-left">Unit</th>
-                                            <th className="px-3 py-2 text-left">Description</th>
-                                            <th className="px-3 py-2 w-28 text-right">Unit Price</th>
-                                            <th className="px-3 py-2 w-20"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-200 text-slate-700">
-                                        {rows.map((row, idx) => (
-                                            <tr key={idx}>
-                                                <td className="px-3 py-2">
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        value={row.quantity}
-                                                        onChange={(e) => updateRow(idx, { quantity: Number(e.target.value) })}
-                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <select
-                                                        value={row.unit}
-                                                        onChange={(e) => updateRow(idx, { unit: e.target.value })}
-                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                                                    >
-                                                        {DEFAULT_UNITS.map(option => (
-                                                            <option key={option} value={option}>{option}</option>
-                                                        ))}
-                                                    </select>
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <textarea
-                                                        value={row.description}
-                                                        onChange={(e) => updateRow(idx, { description: e.target.value })}
-                                                        rows="2"
-                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                                                        placeholder="Item description"
-                                                    ></textarea>
-                                                </td>
-                                                <td className="px-3 py-2 text-right">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        value={row.price}
-                                                        onChange={(e) => updateRow(idx, { price: Number(e.target.value) })}
-                                                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm text-right"
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2 text-right">
-                                                    <button onClick={() => removeRow(idx)} className="text-sm text-rose-500 hover:text-rose-600">Remove</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <button
-                                onClick={addRow}
-                                className="rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-medium text-blue-600 hover:border-blue-500 hover:text-blue-700"
-                            >
-                                Add Row
-                            </button>
-                            <ReceiptPreview items={rows} meta={{ reference, site }} />
-                        </div>
+                        <ReceiptPreviewTable
+                            items={rows}
+                            editable
+                            units={units}
+                            maxHeight="max-h-[55vh]"
+                            onChangeRow={updateRow}
+                            onRemoveRow={removeRow}
+                        />
                     </div>
                 </Modal>
             );
         };
 
-        const ReportsModal = ({ onClose, receipts }) => {
+        const ReportsModal = ({ receipts, onClose }) => {
             const [range, setRange] = useState('30');
 
-            const filtered = useMemo(() => {
+            const filteredReceipts = useMemo(() => {
                 const days = Number(range);
                 if (!days) return receipts;
                 const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
-                return receipts.filter(receipt => new Date(receipt.createdAt).getTime() >= threshold);
+                return receipts.filter((receipt) => new Date(receipt.createdAt).getTime() >= threshold);
             }, [receipts, range]);
 
-            const totals = useMemo(() => {
-                const totalAmount = filtered.reduce((sum, receipt) => sum + (receipt.total || 0), 0);
-                const totalReceipts = filtered.length;
-                const itemUsage = new Map();
-                filtered.forEach(receipt => {
-                    receipt.items.forEach(item => {
-                        const key = item.description || item.sku || 'Unknown Item';
-                        const current = itemUsage.get(key) || { quantity: 0, amount: 0 };
-                        current.quantity += Number(item.quantity) || 0;
-                        current.amount += Number(item.amount) || 0;
-                        itemUsage.set(key, current);
+            const analytics = useMemo(() => {
+                const totalAmount = filteredReceipts.reduce((sum, receipt) => sum + (Number(receipt.total) || 0), 0);
+                const usageMap = new Map();
+
+                filteredReceipts.forEach((receipt) => {
+                    receipt.items.forEach((item) => {
+                        const key = item.description || item.sku || 'Unknown';
+                        const existing = usageMap.get(key) || { quantity: 0, amount: 0 };
+                        existing.quantity += Number(item.quantity) || 0;
+                        existing.amount += Number(item.amount) || 0;
+                        usageMap.set(key, existing);
                     });
                 });
-                const topItems = Array.from(itemUsage.entries())
+
+                const topItems = Array.from(usageMap.entries())
                     .map(([name, stats]) => ({ name, ...stats }))
                     .sort((a, b) => b.quantity - a.quantity)
                     .slice(0, 5);
-                return { totalAmount, totalReceipts, topItems };
-            }, [filtered]);
+
+                return {
+                    totalAmount,
+                    count: filteredReceipts.length,
+                    topItems
+                };
+            }, [filteredReceipts]);
 
             return (
                 <Modal
                     title="Reports & Usage Analytics"
+                    description="Review totals, activity trends, and the most frequently used items."
                     onClose={onClose}
                     actions={[
-                        <button key="close" onClick={onClose} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Close</button>
+                        <button key="close" onClick={onClose} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Close</button>
                     ]}
                     size="2xl"
                 >
                     <div className="space-y-6">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <h3 className="text-base font-semibold text-slate-700">Overview</h3>
-                                <p className="text-sm text-slate-500">Showing receipts from the last {range} days.</p>
+                                <h3 className="text-base font-semibold text-slate-800">Overview</h3>
+                                <p className="text-sm text-slate-500">Filtering {filteredReceipts.length} receipts from the last {range === '0' ? 'all available days' : `${range} days`}.</p>
                             </div>
                             <select
                                 value={range}
-                                onChange={(e) => setRange(e.target.value)}
-                                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                                onChange={(event) => setRange(event.target.value)}
+                                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
                                 <option value="7">Last 7 days</option>
                                 <option value="30">Last 30 days</option>
@@ -581,30 +645,30 @@
                             </select>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-3">
-                            <StatCard label="Receipts" value={totals.totalReceipts} />
-                            <StatCard label="Total Amount" value={formatCurrency(totals.totalAmount)} />
-                            <StatCard label="Average" value={totals.totalReceipts ? formatCurrency(totals.totalAmount / totals.totalReceipts) : formatCurrency(0)} />
+                            <StatCard label="Receipts" value={analytics.count} />
+                            <StatCard label="Total Amount" value={formatCurrency(analytics.totalAmount)} />
+                            <StatCard label="Average Value" value={analytics.count ? formatCurrency(analytics.totalAmount / analytics.count) : formatCurrency(0)} />
                         </div>
                         <div className="space-y-3">
                             <h4 className="text-sm font-semibold text-slate-700">Top Used Items</h4>
-                            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                                     <thead className="bg-slate-100 text-slate-600">
                                         <tr>
                                             <th className="px-3 py-2 text-left">Item</th>
-                                            <th className="px-3 py-2 text-right w-32">Quantity</th>
-                                            <th className="px-3 py-2 text-right w-32">Amount</th>
+                                            <th className="w-32 px-3 py-2 text-right">Quantity</th>
+                                            <th className="w-32 px-3 py-2 text-right">Amount</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
-                                        {totals.topItems.length === 0 && (
+                                        {analytics.topItems.length === 0 && (
                                             <tr>
-                                                <td colSpan="3" className="px-3 py-6 text-center text-slate-400">No usage data yet.</td>
+                                                <td colSpan="3" className="px-3 py-8 text-center text-slate-400">No usage data available.</td>
                                             </tr>
                                         )}
-                                        {totals.topItems.map(item => (
+                                        {analytics.topItems.map((item) => (
                                             <tr key={item.name}>
-                                                <td className="px-3 py-2">{item.name}</td>
+                                                <td className="px-3 py-2 font-medium text-slate-800">{item.name}</td>
                                                 <td className="px-3 py-2 text-right">{item.quantity}</td>
                                                 <td className="px-3 py-2 text-right">{formatCurrency(item.amount)}</td>
                                             </tr>
@@ -618,35 +682,100 @@
             );
         };
 
-        const StatCard = ({ label, value }) => (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-800">{value}</p>
-            </div>
-        );
+        const UnitSettingsModal = ({ units, onClose, onSave }) => {
+            const [draft, setDraft] = useState(units.map((unit, index) => ({ id: index, value: unit })));
+            const [customValue, setCustomValue] = useState('');
 
-        const ReceiptManager = ({ receipts }) => {
+            const updateDraftValue = (id, value) => {
+                setDraft((previous) => previous.map((entry) => (entry.id === id ? { ...entry, value } : entry)));
+            };
+
+            const removeDraftRow = (id) => setDraft((previous) => previous.filter((entry) => entry.id !== id));
+
+            const addDraftRow = () => {
+                if (!customValue.trim()) return;
+                setDraft((previous) => [...previous, { id: Date.now(), value: customValue.trim() }]);
+                setCustomValue('');
+            };
+
+            const handleSave = () => {
+                const cleaned = draft.map((entry) => entry.value.trim()).filter(Boolean);
+                onSave(ensureDefaultUnit(cleaned));
+                onClose();
+            };
+
+            return (
+                <Modal
+                    title="Unit of Measure Settings"
+                    description="Add, edit, or remove issuing units. PC/s is always kept as the default."
+                    onClose={onClose}
+                    actions={[
+                        <button key="cancel" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>,
+                        <button key="save" onClick={handleSave} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Save Units</button>
+                    ]}
+                    size="lg"
+                >
+                    <div className="space-y-5">
+                        <div className="space-y-2">
+                            {draft.map((entry) => (
+                                <div key={entry.id} className="flex items-center gap-3">
+                                    <input
+                                        value={entry.value}
+                                        onChange={(event) => updateDraftValue(entry.id, event.target.value)}
+                                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    {draft.length > 1 && (
+                                        <button
+                                            onClick={() => removeDraftRow(entry.id)}
+                                            className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-500 hover:border-rose-300 hover:text-rose-600"
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <input
+                                value={customValue}
+                                onChange={(event) => setCustomValue(event.target.value)}
+                                placeholder="Add a new unit (e.g., Bundle)"
+                                className="flex-1 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                                onClick={addDraftRow}
+                                className="rounded-lg border border-blue-300 px-3 py-2 text-sm font-medium text-blue-600 hover:border-blue-400 hover:text-blue-700"
+                            >
+                                Add
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const ReceiptManager = ({ receipts, onPreview }) => {
             const [search, setSearch] = useState('');
+
             const filtered = useMemo(() => {
                 const term = search.trim().toLowerCase();
                 if (!term) return receipts;
-                return receipts.filter(receipt => {
-                    return [receipt.number, receipt.site, receipt.type, receipt.createdAt]
-                        .filter(Boolean)
-                        .some(value => value.toLowerCase().includes(term));
+                return receipts.filter((receipt) => {
+                    const values = [receipt.number, receipt.site, receipt.type, receipt.createdAt];
+                    return values.filter(Boolean).some((value) => value.toLowerCase().includes(term));
                 });
             }, [receipts, search]);
 
             return (
-                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <h2 className="text-lg font-semibold text-slate-800">Delivery Receipt Manager</h2>
                         <input
                             type="search"
                             value={search}
-                            onChange={(e) => setSearch(e.target.value)}
+                            onChange={(event) => setSearch(event.target.value)}
                             placeholder="Search by number, site, or date"
-                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                     </div>
                     <div className="mt-4 overflow-x-auto">
@@ -658,21 +787,30 @@
                                     <th className="px-3 py-2 text-left">Type</th>
                                     <th className="px-3 py-2 text-left">Created</th>
                                     <th className="px-3 py-2 text-right">Total</th>
+                                    <th className="px-3 py-2 text-right"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 text-slate-700">
                                 {filtered.length === 0 && (
                                     <tr>
-                                        <td colSpan="5" className="px-3 py-8 text-center text-slate-400">No receipts yet.</td>
+                                        <td colSpan="6" className="px-3 py-10 text-center text-slate-400">No receipts yet.</td>
                                     </tr>
                                 )}
-                                {filtered.map(receipt => (
+                                {filtered.map((receipt) => (
                                     <tr key={receipt.id}>
-                                        <td className="px-3 py-2 font-medium text-slate-800">{receipt.number}</td>
+                                        <td className="px-3 py-2 font-semibold text-slate-800">{receipt.number}</td>
                                         <td className="px-3 py-2">{receipt.site}</td>
                                         <td className="px-3 py-2">{receipt.type}</td>
-                                        <td className="px-3 py-2">{new Date(receipt.createdAt).toLocaleString()}</td>
+                                        <td className="px-3 py-2">{formatDateTime(receipt.createdAt)}</td>
                                         <td className="px-3 py-2 text-right font-semibold">{formatCurrency(receipt.total)}</td>
+                                        <td className="px-3 py-2 text-right">
+                                            <button
+                                                onClick={() => onPreview(receipt)}
+                                                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                                            >
+                                                Preview
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -682,65 +820,149 @@
             );
         };
 
+        const ReceiptPreviewDrawer = ({ receipt, onClose, units }) => {
+            if (!receipt) return null;
+            return (
+                <div className="fixed inset-0 z-40 flex items-start justify-end bg-transparent">
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-l from-slate-900/30 to-transparent"></div>
+                    <div className="relative z-50 h-screen w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+                        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-slate-100 px-5 py-4">
+                            <div>
+                                <h3 className="text-base font-semibold text-slate-800">{receipt.number}</h3>
+                                <p className="text-sm text-slate-500">{receipt.site} &bull; {formatDateTime(receipt.createdAt)} &bull; {receipt.type}</p>
+                            </div>
+                            <button onClick={onClose} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600" aria-label="Close preview">
+                                &times;
+                            </button>
+                        </div>
+                        <div className="space-y-5 px-5 py-6">
+                            <ReceiptPreviewTable items={receipt.items} units={units} />
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const App = () => {
-            const [receipts, setReceipts] = useState(() => {
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (!stored) return [];
-                try {
-                    return JSON.parse(stored);
-                } catch (error) {
-                    console.warn('Failed to parse stored receipts', error);
-                    return [];
-                }
-            });
-            const [modal, setModal] = useState(null);
+            const [receipts, setReceipts] = usePersistentState(STORAGE_KEYS.receipts, []);
+            const [units, setUnits] = usePersistentState(STORAGE_KEYS.units, DEFAULT_UNITS);
+            const normalizedUnits = useMemo(() => ensureDefaultUnit(units), [units]);
 
             useEffect(() => {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(receipts));
+                if (units.length !== normalizedUnits.length || units.some((unit, index) => unit !== normalizedUnits[index])) {
+                    setUnits(normalizedUnits);
+                }
+            }, [normalizedUnits, setUnits, units]);
+
+            const [activeModal, setActiveModal] = useState(null);
+            const [previewingReceipt, setPreviewingReceipt] = useState(null);
+
+            const totalDispatched = useMemo(() => receipts.reduce((sum, receipt) => sum + (Number(receipt.total) || 0), 0), [receipts]);
+
+            const topSite = useMemo(() => {
+                const counter = new Map();
+                receipts.forEach((receipt) => {
+                    if (!receipt.site) return;
+                    counter.set(receipt.site, (counter.get(receipt.site) || 0) + 1);
+                });
+                const sorted = Array.from(counter.entries()).sort((a, b) => b[1] - a[1]);
+                return sorted[0]?.[0] || 'N/A';
             }, [receipts]);
 
+            const mostRecent = receipts[0]?.createdAt ? formatDateTime(receipts[0].createdAt) : 'No receipts yet';
+
             const handleSaveReceipt = (receipt) => {
-                setReceipts(prev => [receipt, ...prev]);
+                setReceipts((previous) => [receipt, ...previous]);
             };
 
             return (
-                <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
-                    <header className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h1 className="text-2xl font-semibold">Warehouse Management Tool</h1>
-                            <p className="text-sm text-blue-100">Manage inventory deliveries and track manual receipts.</p>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                onClick={() => setModal('inventory')}
-                                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm hover:bg-blue-50"
-                            >
-                                Create Delivery Receipt
-                            </button>
-                            <button
-                                onClick={() => setModal('manual')}
-                                className="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-white/20"
-                            >
-                                Manual Receipt
-                            </button>
-                            <button
-                                onClick={() => setModal('reports')}
-                                className="rounded-lg bg-indigo-900/40 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900/60"
-                            >
-                                Reports
-                            </button>
+                <div className="mx-auto max-w-6xl space-y-8 px-4 py-10">
+                    <header className="rounded-3xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 p-6 text-white shadow-xl">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <h1 className="text-3xl font-semibold">Warehouse Management Dashboard</h1>
+                                <p className="mt-1 max-w-xl text-sm text-blue-100">
+                                    Create delivery receipts from inventory or manual entries, keep them searchable, and analyse the most used items with a single-page workspace.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    onClick={() => setActiveModal('inventory')}
+                                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm transition hover:bg-blue-50"
+                                >
+                                    Create Delivery Receipt
+                                </button>
+                                <button
+                                    onClick={() => setActiveModal('manual')}
+                                    className="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-white/20"
+                                >
+                                    Manual Receipt
+                                </button>
+                                <button
+                                    onClick={() => setActiveModal('reports')}
+                                    className="rounded-xl bg-indigo-900/40 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-900/60"
+                                >
+                                    Reports
+                                </button>
+                                <button
+                                    onClick={() => setActiveModal('units')}
+                                    className="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-white/20"
+                                >
+                                    Unit Settings
+                                </button>
+                            </div>
                         </div>
                     </header>
-                    <ReceiptManager receipts={receipts} />
-                    {modal === 'inventory' && (
-                        <InventoryReceiptModal onClose={() => setModal(null)} onSave={handleSaveReceipt} />
+
+                    <section className="grid gap-4 md:grid-cols-3">
+                        <StatCard label="Total Receipts" value={receipts.length} />
+                        <StatCard label="Total Dispatched" value={formatCurrency(totalDispatched)} />
+                        <StatCard label="Most Active Site" value={topSite} />
+                    </section>
+
+                    <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+                        <div className="space-y-6">
+                            <ReceiptManager receipts={receipts} onPreview={(receipt) => setPreviewingReceipt(receipt)} />
+                        </div>
+                        <div className="space-y-4">
+                            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                                <h2 className="text-lg font-semibold text-slate-800">Snapshot</h2>
+                                <dl className="mt-4 space-y-3 text-sm text-slate-600">
+                                    <div className="flex items-center justify-between">
+                                        <dt>Receipts stored locally</dt>
+                                        <dd className="font-semibold text-slate-800">{receipts.length}</dd>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <dt>Last receipt created</dt>
+                                        <dd className="font-semibold text-slate-800">{mostRecent}</dd>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <dt>Default units configured</dt>
+                                        <dd className="font-semibold text-slate-800">{normalizedUnits.join(', ')}</dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </div>
+                    </section>
+
+                    {activeModal === 'inventory' && (
+                        <InventoryReceiptModal onClose={() => setActiveModal(null)} onSave={handleSaveReceipt} units={normalizedUnits} />
                     )}
-                    {modal === 'manual' && (
-                        <ManualReceiptModal onClose={() => setModal(null)} onSave={handleSaveReceipt} />
+                    {activeModal === 'manual' && (
+                        <ManualReceiptModal onClose={() => setActiveModal(null)} onSave={handleSaveReceipt} units={normalizedUnits} />
                     )}
-                    {modal === 'reports' && (
-                        <ReportsModal onClose={() => setModal(null)} receipts={receipts} />
+                    {activeModal === 'reports' && (
+                        <ReportsModal receipts={receipts} onClose={() => setActiveModal(null)} />
                     )}
+                    {activeModal === 'units' && (
+                        <UnitSettingsModal
+                            units={normalizedUnits}
+                            onClose={() => setActiveModal(null)}
+                            onSave={(nextUnits) => setUnits(nextUnits)}
+                        />
+                    )}
+
+                    <ReceiptPreviewDrawer receipt={previewingReceipt} onClose={() => setPreviewingReceipt(null)} units={normalizedUnits} />
                 </div>
             );
         };
