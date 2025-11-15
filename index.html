@@ -40,54 +40,102 @@
         // --- Utility Functions ---
         const formatCurrency = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
 
-        const DEFAULT_ISSUING_UNITS = ['Roll', 'Meter', 'Set', 'Pc', 'Assy'];
+        const UNIT_DISPLAY_OVERRIDES = {
+            'pc': 'PC/s',
+            'pcs': 'PC/s',
+            'pc/s': 'PC/s',
+            'roll': 'Roll/s',
+            'rolls': 'Roll/s',
+            'roll/s': 'Roll/s',
+            'meter': 'Meter/s',
+            'meters': 'Meter/s',
+            'meter/s': 'Meter/s',
+            'set': 'Set/s',
+            'sets': 'Set/s',
+            'set/s': 'Set/s',
+            'assy': 'Assy',
+            'box': 'Box',
+            'length': 'Length'
+        };
+
+        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
+
+        const normalizeUnitValue = (value) => {
+            if (typeof value !== 'string') return '';
+            const trimmed = value.trim();
+            if (!trimmed) return '';
+            const key = trimmed.toLowerCase();
+            if (UNIT_DISPLAY_OVERRIDES[key]) {
+                return UNIT_DISPLAY_OVERRIDES[key];
+            }
+            if (trimmed.includes('/')) {
+                return trimmed
+                    .split('/')
+                    .map((segment, index) => index === 0
+                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+                        : segment.toLowerCase())
+                    .join('/');
+            }
+            if (trimmed.length <= 4) {
+                return trimmed.toUpperCase();
+            }
+            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+        };
 
         const uniqueUnits = (list) => {
             const seen = new Set();
             const ordered = [];
             list.forEach(unit => {
-                if (typeof unit !== 'string') return;
-                const trimmed = unit.trim();
-                if (!trimmed) return;
-                const key = trimmed.toLowerCase();
+                const normalized = normalizeUnitValue(unit);
+                if (!normalized) return;
+                const key = normalized.toLowerCase();
                 if (seen.has(key)) return;
                 seen.add(key);
-                ordered.push(trimmed);
+                ordered.push(normalized);
             });
             return ordered;
+        };
+
+        const ensurePreferredUnitList = (units = []) => {
+            const source = Array.isArray(units) ? units : [];
+            const normalizedSource = source.map(normalizeUnitValue);
+            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
+        };
+
+        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
+
+        const getPreferredUnit = (units) => {
+            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
+            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
         };
 
         const resolveUnitOptions = (item = {}) => {
             const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
             for (const list of candidateLists) {
                 if (Array.isArray(list) && list.length > 0) {
-                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...list]);
+                    const cleaned = ensurePreferredUnitList(list);
                     if (cleaned.length > 0) {
                         return cleaned;
                     }
                 }
             }
-            const fallbackUnits = uniqueUnits([
-                ...DEFAULT_ISSUING_UNITS,
-                item.issuingUnit,
-                item.unit,
-                item.defaultUnit
-            ]);
+            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
+            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
             if (fallbackUnits.length > 0) {
                 return fallbackUnits;
             }
-            return DEFAULT_ISSUING_UNITS;
+            return ensurePreferredUnitList();
         };
 
         const getPrimaryIssuingUnit = (item = {}) => {
             if (typeof item.unit === 'string' && item.unit.trim()) {
-                return item.unit.trim();
+                return normalizeUnitValue(item.unit);
             }
             if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
-                return item.issuingUnit.trim();
+                return normalizeUnitValue(item.issuingUnit);
             }
             const options = resolveUnitOptions(item);
-            return options.length > 0 ? options[0] : 'Unit';
+            return options.length > 0 ? options[0] : 'PC/s';
         };
 
         // --- UI Components ---
@@ -348,7 +396,7 @@
 
         // Form for adding or editing an inventory item
         const ItemForm = ({ currentItem, onSave, onClose, setNotification, unitOptions = GLOBAL_UNIT_OPTIONS }) => {
-            const sanitizedUnitOptions = useMemo(() => uniqueUnits([...(unitOptions || []), 'PC/s']), [unitOptions]);
+            const sanitizedUnitOptions = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
             const preferredUnit = getPreferredUnit(sanitizedUnitOptions);
 
             const defaultItemState = () => ({
@@ -370,10 +418,10 @@
 
             useEffect(() => {
                 if (currentItem) {
-                    const existingUnit = currentItem.unit || currentItem.issuingUnit || preferredUnit;
+                    const existingUnit = normalizeUnitValue(currentItem.unit || currentItem.issuingUnit || preferredUnit) || preferredUnit;
                     const normalizedIssuingUnits = Array.isArray(currentItem.issuingUnits) && currentItem.issuingUnits.length > 0
-                        ? uniqueUnits([existingUnit, ...currentItem.issuingUnits])
-                        : uniqueUnits([existingUnit]);
+                        ? ensurePreferredUnitList([existingUnit, ...currentItem.issuingUnits])
+                        : ensurePreferredUnitList([existingUnit]);
                     setItem({
                         ...currentItem,
                         unit: existingUnit,
@@ -407,16 +455,17 @@
                     return;
                 }
                 setIsCustomUnit(false);
+                const normalized = normalizeUnitValue(value) || preferredUnit;
                 setItem(prev => ({
                     ...prev,
-                    unit: value,
-                    issuingUnit: value,
-                    issuingUnits: uniqueUnits([value, ...(prev.issuingUnits || [])])
+                    unit: normalized,
+                    issuingUnit: normalized,
+                    issuingUnits: ensurePreferredUnitList([normalized, ...(prev.issuingUnits || [])])
                 }));
             };
 
             const handleCustomUnitChange = (e) => {
-                const value = e.target.value.toUpperCase();
+                const value = normalizeUnitValue(e.target.value);
                 setItem(prev => ({ ...prev, unit: value, issuingUnit: value }));
             };
 
@@ -429,12 +478,9 @@
                 setIsSaving(true);
                 try {
                     const rawUnit = item.unit && item.unit.trim() ? item.unit.trim() : 'PC/s';
-                    const unitKey = rawUnit.toLowerCase();
-                    const normalizedUnit = unitKey === 'pc/s'
-                        ? 'PC/s'
-                        : (UNIT_DISPLAY_OVERRIDES[unitKey] || (rawUnit.charAt(0).toUpperCase() + rawUnit.slice(1)));
+                    const normalizedUnit = normalizeUnitValue(rawUnit) || 'PC/s';
                     const issuingUnitsList = Array.isArray(item.issuingUnits) ? item.issuingUnits : [];
-                    const normalizedIssuingUnits = uniqueUnits([normalizedUnit, ...issuingUnitsList]);
+                    const normalizedIssuingUnits = ensurePreferredUnitList([normalizedUnit, ...issuingUnitsList]);
                     await onSave({
                         ...item,
                         unit: normalizedUnit,
@@ -841,7 +887,237 @@
                 </Modal>
             );
         };
-        
+
+        const ManualReceiptModal = ({
+            sites,
+            unitOptions = [],
+            onFinalize,
+            onClose,
+            setNotification,
+            initialData = null,
+            onDraftChange = () => {}
+        }) => {
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
+
+            const defaultUnit = normalizedUnits[0] || 'PC/s';
+
+            const buildRow = useCallback(() => ({
+                id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: '',
+                dispatchQty: 1,
+                unit: defaultUnit,
+                price: 0,
+                isManual: true
+            }), [defaultUnit]);
+
+            const normalizeManualItem = useCallback((item) => ({
+                id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: (item.name || '').toUpperCase(),
+                dispatchQty: Math.max(0, Number(item.dispatchQty || item.requestedQty || 0)),
+                unit: normalizeUnitValue(item.unit || item.issuingUnit || defaultUnit) || defaultUnit,
+                price: Math.max(0, Number(item.price || 0)),
+                isManual: true
+            }), [defaultUnit]);
+
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [items, setItems] = useState(() => {
+                if (initialData?.items?.length) {
+                    return initialData.items.map(normalizeManualItem);
+                }
+                return [buildRow()];
+            });
+
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setShowPrice(initialData.showPrice ?? true);
+                    setItems(initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()]);
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setShowPrice(true);
+                    setItems([buildRow()]);
+                }
+            }, [initialData, buildRow, normalizeManualItem]);
+
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const handleItemChange = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id !== id) return item;
+                    if (field === 'dispatchQty') {
+                        const qty = Math.max(0, Number(value));
+                        return { ...item, dispatchQty: qty };
+                    }
+                    if (field === 'price') {
+                        const price = Math.max(0, Number(value));
+                        return { ...item, price };
+                    }
+                    if (field === 'unit') {
+                        return { ...item, unit: normalizeUnitValue(value) || defaultUnit };
+                    }
+                    if (field === 'name') {
+                        return { ...item, name: value.toUpperCase() };
+                    }
+                    return item;
+                }));
+            };
+
+            const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
+            const handleRemoveRow = (id) => setItems(prev => prev.filter(item => item.id !== id));
+
+            const handleFinalize = () => {
+                if (!siteId) {
+                    setNotification?.({ type: 'error', message: 'Please select a site before continuing.' });
+                    return;
+                }
+
+                const cleanedItems = items
+                    .map(normalizeManualItem)
+                    .filter(item => item.name.trim() && item.dispatchQty > 0);
+
+                if (cleanedItems.length === 0) {
+                    setNotification?.({ type: 'error', message: 'Add at least one manual item with a quantity greater than zero.' });
+                    return;
+                }
+
+                const receiptData = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: cleanedItems,
+                    showPrice,
+                    origin: 'manual'
+                };
+
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            };
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
+                            <button
+                                type="button"
+                                onClick={handleAddRow}
+                                className="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                            >
+                                ➕ Add Manual Item
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                <option value="">-- Select Site --</option>
+                                {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <input type="text" placeholder="Customer Name" value={customerName} onChange={handleUppercaseChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleUppercaseChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="Address" value={address} onChange={handleUppercaseChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                        </div>
+
+                        <div className="border rounded-lg bg-white">
+                            <div className="max-h-[40vh] overflow-y-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10">
+                                        <tr>
+                                            <th className="p-3 w-20">Qty</th>
+                                            <th className="p-3 w-32">Unit</th>
+                                            <th className="p-3">Description</th>
+                                            <th className="p-3 w-32">Unit Price</th>
+                                            <th className="p-3 w-16"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {items.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={item.dispatchQty}
+                                                        onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <select
+                                                        value={item.unit}
+                                                        onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    >
+                                                        {normalizedUnits.map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="p-2">
+                                                    <textarea
+                                                        value={item.name}
+                                                        onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded resize-none h-20 uppercase"
+                                                    ></textarea>
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={item.price}
+                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top text-right">
+                                                    <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {items.length === 0 && (
+                                            <tr>
+                                                <td colSpan="5" className="p-6 text-center text-gray-500">No manual items added yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <textarea
+                            placeholder="Remarks (Optional)"
+                            value={remarks}
+                            onChange={handleUppercaseChange(setRemarks)}
+                            className="w-full px-3 py-2 border rounded-lg uppercase min-h-[80px]"
+                        ></textarea>
+                        <label className="flex items-center gap-2 text-sm bg-gray-100 px-3 py-2 rounded-lg">
+                            <input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show price & totals on preview
+                        </label>
+
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                            <button onClick={handleFinalize} className="px-6 py-2 bg-teal-600 text-white rounded-full hover:bg-teal-700">Preview & Finalize</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
         // Form for creating a new delivery receipt
         const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
@@ -894,11 +1170,14 @@
             };
 
             const updateSelection = (itemId, field, value) => {
+                const nextValue = field === 'qty'
+                    ? value.replace(/[^0-9.]/g, '')
+                    : normalizeUnitValue(value) || value;
                 setSelectionState(prev => ({
                     ...prev,
                     [itemId]: {
                         ...prev[itemId],
-                        [field]: field === 'qty' ? value.replace(/[^0-9.]/g, '') : value
+                        [field]: nextValue
                     }
                 }));
             };
@@ -923,7 +1202,8 @@
                         return prev;
                     }
 
-                    return [...prev, { ...item, dispatchQty: parsedQty, unit: selection.unit || getPrimaryIssuingUnit(item) }];
+                    const nextUnit = normalizeUnitValue(selection.unit || getPrimaryIssuingUnit(item)) || getPrimaryIssuingUnit(item);
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: nextUnit }];
                 });
             };
 
@@ -939,7 +1219,8 @@
             };
 
             const updateCartUnit = (id, unit) => {
-                setCart(prev => prev.map(i => i.id === id ? { ...i, unit } : i));
+                const normalized = normalizeUnitValue(unit) || getPrimaryIssuingUnit(cart.find(i => i.id === id) || {});
+                setCart(prev => prev.map(i => i.id === id ? { ...i, unit: normalized } : i));
             };
 
             const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
@@ -951,7 +1232,7 @@
 
                 const normalizedCart = finalCart.map(item => ({
                     ...item,
-                    unit: item.unit || getPrimaryIssuingUnit(item)
+                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
                 }));
 
                 const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
@@ -966,16 +1247,6 @@
                         <div className="lg:col-span-2 space-y-4">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                 <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        handleOpenManualPreview();
-                                        manualSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }}
-                                    className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
-                                >
-                                    {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
-                                </button>
                             </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
@@ -1315,36 +1586,38 @@
                     </div>
 
                     {/* Items Table */}
-                    <table className="w-full text-left text-sm table-auto border-collapse">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                <th className="p-2 border">Qty</th>
-                                <th className="p-2 border">Unit</th>
-                                <th className="p-2 border">Description</th>
-                                {showPrice && <th className="p-2 border text-right">Unit Price</th>}
-                                {showPrice && <th className="p-2 border text-right">Total</th>}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {receipt.items.map(item => (
-                                <tr key={item.id} className="border-b">
-                                    <td className="p-2 border">{item.dispatchQty || item.requestedQty}</td>
-                                    <td className="p-2 border">{item.unit || item.issuingUnit || 'PCS'}</td>
-                                    <td className="p-2 border">{item.name}</td>
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency(item.price)}</td>}
-                                    {showPrice && <td className="p-2 border text-right">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
-                                </tr>
-                            ))}
-                        </tbody>
-                        {showPrice && (
-                            <tfoot className="font-bold">
+                    <div className="overflow-x-hidden">
+                        <table className="w-full text-left text-sm table-fixed border-collapse">
+                            <thead className="bg-gray-100">
                                 <tr>
-                                    <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
-                                    <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                    <th className="w-20 p-2 border">Qty</th>
+                                    <th className="w-24 p-2 border">Unit</th>
+                                    <th className="p-2 border">Description</th>
+                                    {showPrice && <th className="w-32 p-2 border text-right">Unit Price</th>}
+                                    {showPrice && <th className="w-32 p-2 border text-right">Total</th>}
                                 </tr>
-                            </tfoot>
-                        )}
-                    </table>
+                            </thead>
+                            <tbody>
+                                {receipt.items.map(item => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
+                                        <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
+                                        <td className="p-2 border align-top break-words">{item.name}</td>
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                    </tr>
+                                ))}
+                            </tbody>
+                            {showPrice && (
+                                <tfoot className="font-bold">
+                                    <tr>
+                                        <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
+                                        <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
 
                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
                     
@@ -1723,7 +1996,9 @@
             const [notification, setNotification] = useState(null);
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
+            const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
             const [receiptDraft, setReceiptDraft] = useState(null);
+            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             
@@ -1966,7 +2241,7 @@
                     siteName: selectedSite?.name || 'N/A',
                     createdAt: { toDate: () => new Date() } // Mock server timestamp
                 };
-                setPendingReceiptSource(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceiptOrigin(origin === 'manual' ? 'manual' : 'inventory');
                 setPendingReceipt(dataForPreview);
                 setModal('receipt_confirm_and_preview');
             };
@@ -2140,19 +2415,23 @@
                 setModal(type);
             };
 
-            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
+            const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
                 setPendingReceipt(null);
+                setPendingReceiptOrigin('inventory');
                 if (!preserveReceiptDraft) {
                     setReceiptDraft(null);
+                }
+                if (!preserveManualDraft) {
+                    setManualReceiptDraft(null);
                 }
             };
 
             const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
                 setPendingReceipt(null);
-                setModal('receipt');
+                setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
             };
 
             // --- Render Logic ---
@@ -2252,6 +2531,17 @@
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'manual_receipt' && (
+                        <ManualReceiptModal
+                            sites={sites}
+                            unitOptions={settings.unitOptions}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeModal}
+                            setNotification={setNotification}
+                            initialData={manualReceiptDraft}
+                            onDraftChange={setManualReceiptDraft}
+                        />
+                    )}
                     {modal === 'receipt' && (
                         <DeliveryReceiptForm
                             inventory={inventory}
