@@ -233,6 +233,297 @@
             return options.length > 0 ? options[0] : 'PC/s';
         };
 
+        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
+        const loadStoredJSON = (key, fallback = null) => {
+            if (!isBrowserEnvironment) return fallback;
+            try {
+                const rawValue = window.localStorage.getItem(key);
+                return rawValue ? JSON.parse(rawValue) : fallback;
+            } catch (error) {
+                console.warn(`Failed to parse stored value for "${key}":`, error);
+                return fallback;
+            }
+        };
+
+        const persistStoredJSON = (key, value) => {
+            if (!isBrowserEnvironment) return;
+            try {
+                if (value === null || value === undefined) {
+                    window.localStorage.removeItem(key);
+                } else {
+                    window.localStorage.setItem(key, JSON.stringify(value));
+                }
+            } catch (error) {
+                console.warn(`Failed to persist value for "${key}":`, error);
+            }
+        };
+
+        const escapeCSVValue = (value) => {
+            if (value === null || value === undefined) return '';
+            const stringValue = String(value).replace(/\r?\n|\r/g, ' ');
+            if (/[",]/.test(stringValue)) {
+                return '"' + stringValue.replace(/"/g, '""') + '"';
+            }
+            return stringValue;
+        };
+
+        const exportInventoryToCSV = (items = []) => {
+            if (!Array.isArray(items) || items.length === 0) return;
+            const headers = ['SKU', 'Name', 'Brand', 'Preferred Unit', 'Quantity', 'Unit Price', 'Reorder Level'];
+            const rows = items.map(item => [
+                item.sku || '',
+                item.name || '',
+                item.brand || '',
+                normalizeUnitValue(item.unit || item.issuingUnit || getPrimaryIssuingUnit(item)),
+                item.qty === undefined || item.qty === null ? '' : item.qty,
+                item.price === undefined || item.price === null ? '' : item.price,
+                item.reorderLevel === undefined || item.reorderLevel === null ? '' : item.reorderLevel
+            ]);
+
+            const csvContent = [headers, ...rows].map(row => row.map(escapeCSVValue).join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        };
+
+        const formatDateForSearch = (timestamp) => {
+            if (!timestamp) return '';
+            try {
+                const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+                if (Number.isNaN(date.getTime())) return '';
+                const iso = date.toISOString().slice(0, 10);
+                const locale = date.toLocaleDateString();
+                const longLocale = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                return `${iso} ${locale} ${longLocale}`.toLowerCase();
+            } catch (error) {
+                return '';
+            }
+        };
+
+        const normalizeTimestamp = (timestamp) => {
+            if (!timestamp) return null;
+            try {
+                if (typeof timestamp.toDate === 'function') {
+                    const date = timestamp.toDate();
+                    if (!Number.isNaN(date.getTime())) {
+                        return date;
+                    }
+                }
+                const date = new Date(timestamp);
+                return Number.isNaN(date.getTime()) ? null : date;
+            } catch (error) {
+                return null;
+            }
+        };
+
+        const STORAGE_KEYS = {
+            manualReceiptDraft: 'wm_manual_receipt_draft',
+            inventoryReceiptDraft: 'wm_inventory_receipt_draft'
+        };
+
+        const UNIT_DISPLAY_OVERRIDES = {
+            'pc': 'PC/s',
+            'pcs': 'PC/s',
+            'pc/s': 'PC/s',
+            'roll': 'Roll/s',
+            'rolls': 'Roll/s',
+            'roll/s': 'Roll/s',
+            'meter': 'Meter/s',
+            'meters': 'Meter/s',
+            'meter/s': 'Meter/s',
+            'set': 'Set/s',
+            'sets': 'Set/s',
+            'set/s': 'Set/s',
+            'assy': 'Assy',
+            'box': 'Box',
+            'length': 'Length'
+        };
+
+        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
+
+        const normalizeUnitValue = (value) => {
+            if (typeof value !== 'string') return '';
+            const trimmed = value.trim();
+            if (!trimmed) return '';
+            const key = trimmed.toLowerCase();
+            if (UNIT_DISPLAY_OVERRIDES[key]) {
+                return UNIT_DISPLAY_OVERRIDES[key];
+            }
+            if (trimmed.includes('/')) {
+                return trimmed
+                    .split('/')
+                    .map((segment, index) => index === 0
+                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+                        : segment.toLowerCase())
+                    .join('/');
+            }
+            if (trimmed.length <= 4) {
+                return trimmed.toUpperCase();
+            }
+            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+        };
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                const normalized = normalizeUnitValue(unit);
+                if (!normalized) return;
+                const key = normalized.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(normalized);
+            });
+            return ordered;
+        };
+
+        const ensurePreferredUnitList = (units = []) => {
+            const source = Array.isArray(units) ? units : [];
+            const normalizedSource = source.map(normalizeUnitValue);
+            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
+        };
+
+        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
+
+        const getPreferredUnit = (units) => {
+            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
+            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
+        };
+
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = ensurePreferredUnitList(list);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
+            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return ensurePreferredUnitList();
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return normalizeUnitValue(item.unit);
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return normalizeUnitValue(item.issuingUnit);
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'PC/s';
+        };
+
+        const UNIT_DISPLAY_OVERRIDES = {
+            'pc': 'PC/s',
+            'pcs': 'PC/s',
+            'pc/s': 'PC/s',
+            'roll': 'Roll/s',
+            'rolls': 'Roll/s',
+            'roll/s': 'Roll/s',
+            'meter': 'Meter/s',
+            'meters': 'Meter/s',
+            'meter/s': 'Meter/s',
+            'set': 'Set/s',
+            'sets': 'Set/s',
+            'set/s': 'Set/s',
+            'assy': 'Assy',
+            'box': 'Box',
+            'length': 'Length'
+        };
+
+        const DEFAULT_ISSUING_UNITS = ['PC/s', 'Roll/s', 'Meter/s', 'Box', 'Length', 'Assy', 'Set/s'];
+
+        const normalizeUnitValue = (value) => {
+            if (typeof value !== 'string') return '';
+            const trimmed = value.trim();
+            if (!trimmed) return '';
+            const key = trimmed.toLowerCase();
+            if (UNIT_DISPLAY_OVERRIDES[key]) {
+                return UNIT_DISPLAY_OVERRIDES[key];
+            }
+            if (trimmed.includes('/')) {
+                return trimmed
+                    .split('/')
+                    .map((segment, index) => index === 0
+                        ? segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+                        : segment.toLowerCase())
+                    .join('/');
+            }
+            if (trimmed.length <= 4) {
+                return trimmed.toUpperCase();
+            }
+            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+        };
+
+        const uniqueUnits = (list) => {
+            const seen = new Set();
+            const ordered = [];
+            list.forEach(unit => {
+                const normalized = normalizeUnitValue(unit);
+                if (!normalized) return;
+                const key = normalized.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                ordered.push(normalized);
+            });
+            return ordered;
+        };
+
+        const ensurePreferredUnitList = (units = []) => {
+            const source = Array.isArray(units) ? units : [];
+            const normalizedSource = source.map(normalizeUnitValue);
+            return uniqueUnits([...DEFAULT_ISSUING_UNITS, ...normalizedSource]);
+        };
+
+        const GLOBAL_UNIT_OPTIONS = ensurePreferredUnitList();
+
+        const getPreferredUnit = (units) => {
+            const normalized = ensurePreferredUnitList(Array.isArray(units) ? units : []);
+            return normalized.find(unit => unit.toLowerCase() === 'pc/s') || normalized[0] || 'PC/s';
+        };
+
+        const resolveUnitOptions = (item = {}) => {
+            const candidateLists = [item.issuingUnits, item.units, item.unitOptions, item.allowedUnits];
+            for (const list of candidateLists) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const cleaned = ensurePreferredUnitList(list);
+                    if (cleaned.length > 0) {
+                        return cleaned;
+                    }
+                }
+            }
+            const fallbackCandidates = [item.issuingUnit, item.unit, item.defaultUnit].filter(Boolean);
+            const fallbackUnits = ensurePreferredUnitList(fallbackCandidates);
+            if (fallbackUnits.length > 0) {
+                return fallbackUnits;
+            }
+            return ensurePreferredUnitList();
+        };
+
+        const getPrimaryIssuingUnit = (item = {}) => {
+            if (typeof item.unit === 'string' && item.unit.trim()) {
+                return normalizeUnitValue(item.unit);
+            }
+            if (typeof item.issuingUnit === 'string' && item.issuingUnit.trim()) {
+                return normalizeUnitValue(item.issuingUnit);
+            }
+            const options = resolveUnitOptions(item);
+            return options.length > 0 ? options[0] : 'PC/s';
+        };
+
         // --- UI Components ---
 
         // A simple spinner component for loading states
