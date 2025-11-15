@@ -841,243 +841,7 @@
                 </Modal>
             );
         };
-
-        const ManualReceiptModal = ({
-            sites,
-            unitOptions = [],
-            onFinalize,
-            onClose,
-            setNotification,
-            initialData = null,
-            onDraftChange = () => {}
-        }) => {
-            const normalizedUnits = useMemo(() => {
-                if (Array.isArray(unitOptions) && unitOptions.length > 0) {
-                    const cleaned = uniqueUnits([...DEFAULT_ISSUING_UNITS, ...unitOptions]);
-                    return cleaned.length > 0 ? cleaned : DEFAULT_ISSUING_UNITS;
-                }
-                return DEFAULT_ISSUING_UNITS;
-            }, [unitOptions]);
-
-            const defaultUnit = normalizedUnits[0] || 'PC/s';
-
-            const buildRow = useCallback(() => ({
-                id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                name: '',
-                dispatchQty: 1,
-                unit: defaultUnit,
-                price: 0,
-                isManual: true
-            }), [defaultUnit]);
-
-            const normalizeManualItem = useCallback((item) => ({
-                id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                name: (item.name || '').toUpperCase(),
-                dispatchQty: Math.max(0, Number(item.dispatchQty || item.requestedQty || 0)),
-                unit: item.unit || item.issuingUnit || defaultUnit,
-                price: Math.max(0, Number(item.price || 0)),
-                isManual: true
-            }), [defaultUnit]);
-
-            const [siteId, setSiteId] = useState(initialData?.siteId || '');
-            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
-            const [address, setAddress] = useState(initialData?.address || '');
-            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
-            const [remarks, setRemarks] = useState(initialData?.remarks || '');
-            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
-            const [items, setItems] = useState(() => {
-                if (initialData?.items?.length) {
-                    return initialData.items.map(normalizeManualItem);
-                }
-                return [buildRow()];
-            });
-
-            useEffect(() => {
-                if (initialData) {
-                    setSiteId(initialData.siteId || '');
-                    setCustomerName(initialData.customerName || '');
-                    setAddress(initialData.address || '');
-                    setPoNumber(initialData.poNumber || '');
-                    setRemarks(initialData.remarks || '');
-                    setShowPrice(initialData.showPrice ?? true);
-                    setItems(initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()]);
-                } else {
-                    setSiteId('');
-                    setCustomerName('');
-                    setAddress('');
-                    setPoNumber('');
-                    setRemarks('');
-                    setShowPrice(true);
-                    setItems([buildRow()]);
-                }
-            }, [initialData, buildRow, normalizeManualItem]);
-
-            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
-
-            const handleItemChange = (id, field, value) => {
-                setItems(prev => prev.map(item => {
-                    if (item.id !== id) return item;
-                    if (field === 'dispatchQty') {
-                        const qty = Math.max(0, Number(value));
-                        return { ...item, dispatchQty: qty };
-                    }
-                    if (field === 'price') {
-                        const price = Math.max(0, Number(value));
-                        return { ...item, price };
-                    }
-                    if (field === 'unit') {
-                        return { ...item, unit: value };
-                    }
-                    if (field === 'name') {
-                        return { ...item, name: value.toUpperCase() };
-                    }
-                    return item;
-                }));
-            };
-
-            const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
-            const handleRemoveRow = (id) => setItems(prev => prev.filter(item => item.id !== id));
-
-            const handleFinalize = () => {
-                if (!siteId) {
-                    setNotification?.({ type: 'error', message: 'Please select a site before continuing.' });
-                    return;
-                }
-
-                const cleanedItems = items
-                    .map(normalizeManualItem)
-                    .filter(item => item.name.trim() && item.dispatchQty > 0);
-
-                if (cleanedItems.length === 0) {
-                    setNotification?.({ type: 'error', message: 'Add at least one manual item with a quantity greater than zero.' });
-                    return;
-                }
-
-                const receiptData = {
-                    siteId,
-                    customerName,
-                    address,
-                    poNumber,
-                    remarks,
-                    items: cleanedItems,
-                    showPrice,
-                    origin: 'manual'
-                };
-
-                onDraftChange(receiptData);
-                onFinalize(receiptData);
-            };
-
-            return (
-                <Modal onClose={onClose} size="7xl">
-                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
-                            <button
-                                type="button"
-                                onClick={handleAddRow}
-                                className="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
-                            >
-                                ➕ Add Manual Item
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                <option value="">-- Select Site --</option>
-                                {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                            <input type="text" placeholder="Customer Name" value={customerName} onChange={handleUppercaseChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleUppercaseChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                            <input type="text" placeholder="Address" value={address} onChange={handleUppercaseChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
-                        </div>
-
-                        <div className="border rounded-lg bg-white">
-                            <div className="max-h-[40vh] overflow-y-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="sticky top-0 bg-gray-100 z-10">
-                                        <tr>
-                                            <th className="p-3 w-20">Qty</th>
-                                            <th className="p-3 w-32">Unit</th>
-                                            <th className="p-3">Description</th>
-                                            <th className="p-3 w-32">Unit Price</th>
-                                            <th className="p-3 w-16"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {items.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2 align-top">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        value={item.dispatchQty}
-                                                        onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    />
-                                                </td>
-                                                <td className="p-2 align-top">
-                                                    <select
-                                                        value={item.unit}
-                                                        onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    >
-                                                        {normalizedUnits.map(option => (
-                                                            <option key={option} value={option}>{option}</option>
-                                                        ))}
-                                                    </select>
-                                                </td>
-                                                <td className="p-2">
-                                                    <textarea
-                                                        value={item.name}
-                                                        onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded resize-none h-20 uppercase"
-                                                    ></textarea>
-                                                </td>
-                                                <td className="p-2 align-top">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={item.price}
-                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    />
-                                                </td>
-                                                <td className="p-2 align-top text-right">
-                                                    <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {items.length === 0 && (
-                                            <tr>
-                                                <td colSpan="5" className="p-6 text-center text-gray-500">No manual items added yet.</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <textarea
-                            placeholder="Remarks (Optional)"
-                            value={remarks}
-                            onChange={handleUppercaseChange(setRemarks)}
-                            className="w-full px-3 py-2 border rounded-lg uppercase min-h-[80px]"
-                        ></textarea>
-                        <label className="flex items-center gap-2 text-sm bg-gray-100 px-3 py-2 rounded-lg">
-                            <input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show price & totals on preview
-                        </label>
-
-                        <div className="flex justify-end gap-3 pt-4 border-t">
-                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                            <button onClick={handleFinalize} className="px-6 py-2 bg-teal-600 text-white rounded-full hover:bg-teal-700">Preview & Finalize</button>
-                        </div>
-                    </div>
-                </Modal>
-            );
-        };
-
+        
         // Form for creating a new delivery receipt
         const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
@@ -1202,6 +966,16 @@
                         <div className="lg:col-span-2 space-y-4">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                 <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        handleOpenManualPreview();
+                                        manualSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }}
+                                    className={`self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold transition ${manualPreviewActive ? 'bg-white text-teal-700 border border-teal-500 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                                >
+                                    {manualPreviewActive ? 'Manual Editor Active' : '➕ Manual DR Item'}
+                                </button>
                             </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                  <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
@@ -1949,9 +1723,7 @@
             const [notification, setNotification] = useState(null);
             const [currentItem, setCurrentItem] = useState(null); 
             const [pendingReceipt, setPendingReceipt] = useState(null);
-            const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
             const [receiptDraft, setReceiptDraft] = useState(null);
-            const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             
@@ -2194,7 +1966,7 @@
                     siteName: selectedSite?.name || 'N/A',
                     createdAt: { toDate: () => new Date() } // Mock server timestamp
                 };
-                setPendingReceiptOrigin(origin === 'manual' ? 'manual' : 'inventory');
+                setPendingReceiptSource(origin === 'manual' ? 'manual' : 'inventory');
                 setPendingReceipt(dataForPreview);
                 setModal('receipt_confirm_and_preview');
             };
@@ -2368,23 +2140,19 @@
                 setModal(type);
             };
 
-            const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
+            const closeModal = ({ preserveReceiptDraft = false } = {}) => {
                 setModal(null);
                 setCurrentItem(null);
                 setPendingReceipt(null);
-                setPendingReceiptOrigin('inventory');
                 if (!preserveReceiptDraft) {
                     setReceiptDraft(null);
-                }
-                if (!preserveManualDraft) {
-                    setManualReceiptDraft(null);
                 }
             };
 
             const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
                 setPendingReceipt(null);
-                setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
+                setModal('receipt');
             };
 
             // --- Render Logic ---
@@ -2484,17 +2252,6 @@
                     {modal === 'admin_login' && <AdminLoginModal onLogin={handleAdminLogin} onClose={closeModal} />}
                     {modal === 'settings' && <SettingsForm settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
                     {modal === 'sites' && <SiteManagementForm sites={sites} onSave={handleSaveSite} onFinishSite={handleFinishSite} onReactivateSite={handleReactivateSite} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'manual_receipt' && (
-                        <ManualReceiptModal
-                            sites={sites}
-                            unitOptions={settings.unitOptions}
-                            onFinalize={handlePreviewAndFinalize}
-                            onClose={closeModal}
-                            setNotification={setNotification}
-                            initialData={manualReceiptDraft}
-                            onDraftChange={setManualReceiptDraft}
-                        />
-                    )}
                     {modal === 'receipt' && (
                         <DeliveryReceiptForm
                             inventory={inventory}
