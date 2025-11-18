@@ -2001,6 +2001,7 @@
         const ReportsModal = ({ inventory, deliveryReceipts, settings, onClose, setNotification }) => {
             const reorderLevel = Number(settings?.reorderLevel || 0);
             const reportDate = useMemo(() => new Date(), []);
+            const [reportType, setReportType] = useState('inventory');
 
             const summary = useMemo(() => {
                 const totalItems = inventory.length;
@@ -2070,8 +2071,21 @@
             };
 
             const buildSummaryText = () => {
+                if (reportType === 'receipts') {
+                    const lines = [
+                        'Delivery Receipt Health Report',
+                        `Finished Receipts: ${receiptHealth.finished}`,
+                        `Unreturned Receipts: ${receiptHealth.outstanding}`,
+                        `Overdue (>=7d): ${receiptHealth.overdue}`,
+                        '',
+                        'Recent Receipts:',
+                        ...recentReceipts.map(r => `- ${r.number} (${r.status}) :: ${r.count} items :: ${toDate(r.createdAt)?.toLocaleDateString?.() || 'N/A'}`)
+                    ];
+                    return lines.join('\n');
+                }
+
                 const lines = [
-                    'Warehouse Report Summary',
+                    'Warehouse Inventory Report',
                     `Total Unique Items: ${summary.totalItems}`,
                     `Total Quantity: ${summary.totalQuantity}`,
                     `Inventory Value: ${formatCurrency(summary.totalValue)}`,
@@ -2105,44 +2119,69 @@
                     lines.push([section, metric, value].map(escape).join(','));
                 };
 
-                lines.push([escape('Warehouse Performance Report'), escape(reportDate.toLocaleString())].join(','));
+                const title = reportType === 'receipts' ? 'Delivery Receipt Health Report' : 'Warehouse Inventory Report';
+                lines.push([escape(title), escape(reportDate.toLocaleString())].join(','));
                 lines.push('');
                 lines.push(['Section', 'Metric', 'Value'].map(escape).join(','));
-                addMetric('Inventory', 'Total Unique Items', summary.totalItems);
-                addMetric('Inventory', 'Total Quantity', summary.totalQuantity);
-                addMetric('Inventory', 'Inventory Value', formatCurrency(summary.totalValue));
-                addMetric('Inventory', 'Average Unit Value', formatCurrency(summary.averageUnitValue));
-                addMetric('Inventory', 'Low Stock Items', summary.lowStockCount);
-                addMetric('Receipts', 'Finished Receipts', receiptHealth.finished);
-                addMetric('Receipts', 'Unreturned Receipts', receiptHealth.outstanding);
-                addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
 
-                lines.push('');
-                lines.push(['Inventory Detail', '', '', '', '', '', '', ''].map(escape).join(','));
-                const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
-                lines.push(headers.map(escape).join(','));
-                inventory.forEach(item => {
-                    const row = [
-                        item.sku,
-                        item.name,
-                        item.brand || '',
-                        item.qty,
-                        item.unit || item.issuingUnit || '',
-                        item.price,
-                        (Number(item.qty || 0) * Number(item.price || 0)).toFixed(2),
-                        item.reorderLevel ?? reorderLevel
-                    ];
-                    lines.push(row.map(escape).join(','));
-                });
+                if (reportType === 'receipts') {
+                    addMetric('Receipts', 'Finished', receiptHealth.finished);
+                    addMetric('Receipts', 'Unreturned', receiptHealth.outstanding);
+                    addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
+                    lines.push('');
+                    lines.push(['DR Health Detail', '', '', '', '', ''].map(escape).join(','));
+                    const headers = ['DR Number', 'Customer / Site', 'Status', 'Created At', 'Items', 'Age (days)'];
+                    lines.push(headers.map(escape).join(','));
+                    recentReceipts.forEach(receipt => {
+                        const created = toDate(receipt.createdAt);
+                        const ageDays = created ? Math.round((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)) : '';
+                        const row = [
+                            receipt.number,
+                            receipt.name,
+                            receipt.status,
+                            created?.toLocaleString?.() || '',
+                            receipt.count,
+                            ageDays
+                        ];
+                        lines.push(row.map(escape).join(','));
+                    });
+                } else {
+                    addMetric('Inventory', 'Total Unique Items', summary.totalItems);
+                    addMetric('Inventory', 'Total Quantity', summary.totalQuantity);
+                    addMetric('Inventory', 'Inventory Value', formatCurrency(summary.totalValue));
+                    addMetric('Inventory', 'Average Unit Value', formatCurrency(summary.averageUnitValue));
+                    addMetric('Inventory', 'Low Stock Items', summary.lowStockCount);
+                    addMetric('Receipts', 'Finished Receipts', receiptHealth.finished);
+                    addMetric('Receipts', 'Unreturned Receipts', receiptHealth.outstanding);
+                    addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
+
+                    lines.push('');
+                    lines.push(['Inventory Detail', '', '', '', '', '', '', ''].map(escape).join(','));
+                    const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
+                    lines.push(headers.map(escape).join(','));
+                    inventory.forEach(item => {
+                        const row = [
+                            item.sku,
+                            item.name,
+                            item.brand || '',
+                            item.qty,
+                            item.unit || item.issuingUnit || '',
+                            item.price,
+                            (Number(item.qty || 0) * Number(item.price || 0)).toFixed(2),
+                            item.reorderLevel ?? reorderLevel
+                        ];
+                        lines.push(row.map(escape).join(','));
+                    });
+                }
 
                 const csvContent = lines.join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = `warehouse-report-${reportDate.toISOString().slice(0,10)}.csv`;
+                link.download = `${reportType}-report-${reportDate.toISOString().slice(0,10)}.csv`;
                 link.click();
                 URL.revokeObjectURL(link.href);
-                setNotification?.({ type: 'success', message: 'Report exported as CSV.' });
+                setNotification?.({ type: 'success', message: `${reportType === 'receipts' ? 'Receipt' : 'Inventory'} report exported as CSV.` });
             };
 
             const handlePrintReport = () => {
@@ -2153,16 +2192,1487 @@
                 <Modal onClose={onClose} size="5xl">
                     <div className="space-y-6">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                            <div>
-                                <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Warehouse Report</p>
-                                <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
-                                <p className="text-gray-500">Clean, printable snapshot of performance and risk across inventory and receipts.</p>
-                                <p className="text-xs text-gray-400 mt-1">Generated: {reportDate.toLocaleString()}</p>
+                            <div className="flex items-center gap-3">
+                                <img src="https://i.imgur.com/s6WXWGg.png" alt="Company Logo" className="h-12 w-12 rounded-xl border border-gray-200 shadow-sm" />
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Warehouse Report</p>
+                                    <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
+                                    <p className="text-gray-500">Clean, printable snapshots across inventory and delivery receipts.</p>
+                                    <p className="text-xs text-gray-400 mt-1">Generated: {reportDate.toLocaleString()}</p>
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-2 justify-end no-print">
-                                <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
-                                <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Download CSV</button>
-                                <button onClick={handlePrintReport} className="px-4 py-2 bg-gray-800 text-white rounded-full text-sm shadow-sm hover:bg-gray-900">Print Report</button>
+                            <div className="flex flex-col sm:items-end gap-2 w-full sm:w-auto">
+                                <div className="bg-gray-100 rounded-full p-1 flex gap-1 self-start sm:self-end no-print">
+                                    {['inventory', 'receipts'].map(type => (
+                                        <button
+                                            key={type}
+                                            onClick={() => setReportType(type)}
+                                            className={`px-3 py-1 text-sm rounded-full transition ${reportType === type ? 'bg-white shadow-sm font-semibold text-indigo-700' : 'text-gray-600 hover:text-indigo-700'}`}
+                                        >
+                                            {type === 'inventory' ? 'Inventory Report' : 'Delivery Receipt Report'}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-end no-print">
+                                    <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
+                                    <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Download CSV</button>
+                                    <button onClick={handlePrintReport} className="px-4 py-2 bg-gray-800 text-white rounded-full text-sm shadow-sm hover:bg-gray-900">Print Report</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {reportType === 'inventory' ? (
+                            <>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <p className="text-xs uppercase text-gray-500">Total Items</p>
+                                        <p className="text-2xl font-bold">{summary.totalItems}</p>
+                                    </div>
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <p className="text-xs uppercase text-gray-500">Total Quantity</p>
+                                        <p className="text-2xl font-bold">{summary.totalQuantity.toLocaleString()}</p>
+                                    </div>
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <p className="text-xs uppercase text-gray-500">Inventory Value</p>
+                                        <p className="text-2xl font-bold">{formatCurrency(summary.totalValue)}</p>
+                                    </div>
+                                    <div className={`border rounded-xl p-4 shadow-sm ${summary.lowStockCount > 0 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                                        <p className="text-xs uppercase text-gray-500">Low Stock Items</p>
+                                        <p className="text-2xl font-bold">{summary.lowStockCount}</p>
+                                    </div>
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <p className="text-xs uppercase text-gray-500">Avg. Unit Value</p>
+                                        <p className="text-2xl font-bold">{formatCurrency(summary.averageUnitValue)}</p>
+                                    </div>
+                                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 shadow-sm">
+                                        <p className="text-xs uppercase text-indigo-700">Open Receipts</p>
+                                        <p className="text-2xl font-bold text-indigo-900">{receiptHealth.outstanding}</p>
+                                        <p className="text-[11px] text-indigo-600">{receiptHealth.overdue} overdue</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-lg font-bold text-gray-800">Low Stock Watchlist</h3>
+                                            <span className="text-xs text-gray-500">Threshold: {reorderLevel}</span>
+                                        </div>
+                                        <div className="h-64 overflow-y-auto">
+                                            {lowStockItems.length > 0 ? (
+                                                <table className="w-full text-sm">
+                                                    <thead className="sticky top-0 bg-gray-50">
+                                                        <tr>
+                                                            <th className="p-2 text-left">Item</th>
+                                                            <th className="p-2 text-left">Qty</th>
+                                                            <th className="p-2 text-left">Reorder</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {lowStockItems.map(item => (
+                                                            <tr key={item.id} className="border-b">
+                                                                <td className="p-2">{item.name}</td>
+                                                                <td className="p-2 text-orange-600 font-semibold">{item.qty}</td>
+                                                                <td className="p-2 text-gray-600">{item.reorderLevel ?? reorderLevel}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : <p className="text-gray-500 text-sm">All items are above the reorder threshold.</p>}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-2">Stock by Brand</h3>
+                                        <div className="h-64 overflow-y-auto">
+                                            {brandBreakdown.length > 0 ? (
+                                                <table className="w-full text-sm">
+                                                    <thead className="sticky top-0 bg-gray-50">
+                                                        <tr>
+                                                            <th className="p-2 text-left">Brand</th>
+                                                            <th className="p-2 text-left">Qty</th>
+                                                            <th className="p-2 text-left">Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {brandBreakdown.map(row => (
+                                                            <tr key={row.brand} className="border-b">
+                                                                <td className="p-2">{row.brand}</td>
+                                                                <td className="p-2">{row.qty.toLocaleString()}</td>
+                                                                <td className="p-2">{formatCurrency(row.value)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : <p className="text-gray-500 text-sm">No brand data available.</p>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-2">Top Valued Items</h3>
+                                        <div className="h-64 overflow-y-auto">
+                                            {topValuedItems.length > 0 ? (
+                                                <table className="w-full text-sm">
+                                                    <thead className="sticky top-0 bg-gray-50">
+                                                        <tr>
+                                                            <th className="p-2 text-left">Item</th>
+                                                            <th className="p-2 text-left">Value</th>
+                                                            <th className="p-2 text-left">Stock</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {topValuedItems.map(item => (
+                                                            <tr key={item.id} className="border-b">
+                                                                <td className="p-2">{item.name}</td>
+                                                                <td className="p-2">{formatCurrency(item.value)}</td>
+                                                                <td className="p-2">{item.qty}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : <p className="text-gray-500 text-sm">No inventory available.</p>}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-2">Recent Receipts & Orders</h3>
+                                        <div className="h-64 overflow-y-auto">
+                                            {recentReceipts.length > 0 ? (
+                                                <ul className="space-y-2 text-sm">
+                                                    {recentReceipts.map(receipt => (
+                                                        <li key={receipt.id} className="flex justify-between items-start border-b pb-2">
+                                                            <div>
+                                                                <p className="font-semibold text-gray-800">{receipt.number}</p>
+                                                                <p className="text-gray-500 text-xs">{receipt.name}</p>
+                                                            </div>
+                                                            <div className="text-right text-xs text-gray-500">
+                                                                <p>{toDate(receipt.createdAt)?.toLocaleDateString?.() || 'N/A'}</p>
+                                                                <p className="font-semibold text-gray-700">{receipt.count} items</p>
+                                                                <p className="uppercase text-[11px] text-indigo-600">{receipt.status}</p>
+                                                            </div>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : <p className="text-gray-500 text-sm">No recent documents.</p>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                    <div className="lg:col-span-2 bg-white border rounded-xl p-4 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-2">Inventory Analyzer</h3>
+                                        <ul className="space-y-2 text-sm text-gray-700">
+                                            <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Low-stock coverage</span><span className="font-semibold text-orange-600">{summary.lowStockCount} items at risk</span></li>
+                                            <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Value concentration</span><span className="font-semibold text-indigo-700">Top 3 SKUs hold {topValuedItems.length ? `${Math.round((topValuedItems.reduce((sum, item) => sum + (item.value || 0), 0) / (summary.totalValue || 1)) * 100)}%` : '0%'}</span></li>
+                                            <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Healthy coverage</span><span className="font-semibold text-emerald-700">{summary.totalItems - summary.lowStockCount} stable SKUs</span></li>
+                                            <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Receipt throughput</span><span className="font-semibold text-indigo-700">{receiptHealth.finished} finished / {receiptHealth.outstanding} open</span></li>
+                                        </ul>
+                                    </div>
+                                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-2">Receipt Tracker</h3>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between bg-indigo-50 border border-indigo-100 rounded-lg p-2"><span className="text-indigo-700">Finished</span><span className="font-semibold text-indigo-900">{receiptHealth.finished}</span></div>
+                                            <div className="flex justify-between bg-amber-50 border border-amber-100 rounded-lg p-2"><span className="text-amber-700">Unreturned</span><span className="font-semibold text-amber-900">{receiptHealth.outstanding}</span></div>
+                                            <div className="flex justify-between bg-rose-50 border border-rose-100 rounded-lg p-2"><span className="text-rose-700">Overdue (&gt;=7d)</span><span className="font-semibold text-rose-900">{receiptHealth.overdue}</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                    <h3 className="text-lg font-bold text-gray-800 mb-2">Delivery Receipt Analyzer</h3>
+                                    <ul className="space-y-2 text-sm text-gray-700">
+                                        <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Throughput</span><span className="font-semibold text-indigo-700">{receiptHealth.finished} finished / {receiptHealth.outstanding} open</span></li>
+                                        <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Overdue risk</span><span className="font-semibold text-rose-700">{receiptHealth.overdue} need action</span></li>
+                                        <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Recent velocity</span><span className="font-semibold text-emerald-700">{recentReceipts.slice(0,3).reduce((sum, r) => sum + (r.count || 0), 0)} items in last {Math.min(3, recentReceipts.length)} DRs</span></li>
+                                        <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Inventory touch</span><span className="font-semibold text-gray-800">{summary.totalItems} SKUs available</span></li>
+                                    </ul>
+                                </div>
+                                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                    <h3 className="text-lg font-bold text-gray-800 mb-2">Recent Receipts</h3>
+                                    <div className="h-64 overflow-y-auto">
+                                        {recentReceipts.length > 0 ? (
+                                            <ul className="space-y-2 text-sm">
+                                                {recentReceipts.map(receipt => {
+                                                    const created = toDate(receipt.createdAt);
+                                                    const ageDays = created ? Math.round((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)) : null;
+                                                    return (
+                                                        <li key={receipt.id} className="flex justify-between items-start border-b pb-2">
+                                                            <div>
+                                                                <p className="font-semibold text-gray-800">{receipt.number}</p>
+                                                                <p className="text-gray-500 text-xs">{receipt.name}</p>
+                                                            </div>
+                                                            <div className="text-right text-xs text-gray-500">
+                                                                <p>{created?.toLocaleDateString?.() || 'N/A'}</p>
+                                                                <p className="font-semibold text-gray-700">{receipt.count} items</p>
+                                                                <p className={`uppercase text-[11px] ${receipt.status === 'Finished' ? 'text-emerald-600' : 'text-indigo-600'}`}>{receipt.status}</p>
+                                                                {ageDays !== null && <p className="text-[11px] text-gray-400">{ageDays}d old</p>}
+                                                            </div>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        ) : <p className="text-gray-500 text-sm">No recent documents.</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full mt-4">Done</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const ManualReceiptModal = ({
+            sites,
+            unitOptions = [],
+            onFinalize,
+            onClose,
+            setNotification,
+            initialData = null,
+            onDraftChange = () => {}
+        }) => {
+            const normalizedUnits = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
+
+            const defaultUnit = normalizedUnits[0] || 'PC/s';
+
+            const buildRow = useCallback(() => ({
+                id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: '',
+                dispatchQty: 1,
+                unit: defaultUnit,
+                price: 0,
+                isManual: true
+            }), [defaultUnit]);
+
+            const normalizeManualItem = useCallback((item) => ({
+                id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: item.name || '',
+                dispatchQty: Math.max(0, Number(item.dispatchQty || item.requestedQty || 0)),
+                unit: normalizeUnitValue(item.unit || item.issuingUnit || defaultUnit) || defaultUnit,
+                price: Math.max(0, Number(item.price || 0)),
+                isManual: true
+            }), [defaultUnit]);
+
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [items, setItems] = useState(() => {
+                if (initialData?.items?.length) {
+                    return initialData.items.map(normalizeManualItem);
+                }
+                return [buildRow()];
+            });
+
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setShowPrice(initialData.showPrice ?? true);
+                    setItems(initialData.items?.length ? initialData.items.map(normalizeManualItem) : [buildRow()]);
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setShowPrice(true);
+                    setItems([buildRow()]);
+                }
+            }, [initialData, buildRow, normalizeManualItem]);
+
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const handleItemChange = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id !== id) return item;
+                    if (field === 'dispatchQty') {
+                        const qty = Math.max(0, Number(value));
+                        return { ...item, dispatchQty: qty };
+                    }
+                    if (field === 'price') {
+                        const price = Math.max(0, Number(value));
+                        return { ...item, price };
+                    }
+                    if (field === 'unit') {
+                        return { ...item, unit: normalizeUnitValue(value) || defaultUnit };
+                    }
+                    if (field === 'name') {
+                        return { ...item, name: value };
+                    }
+                    return item;
+                }));
+            };
+
+            const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
+            const handleRemoveRow = (id) => setItems(prev => prev.filter(item => item.id !== id));
+
+            const handleFinalize = () => {
+                if (!siteId) {
+                    setNotification?.({ type: 'error', message: 'Please select a site before continuing.' });
+                    return;
+                }
+
+                const cleanedItems = items
+                    .map(normalizeManualItem)
+                    .filter(item => item.name.trim() && item.dispatchQty > 0);
+
+                if (cleanedItems.length === 0) {
+                    setNotification?.({ type: 'error', message: 'Add at least one manual item with a quantity greater than zero.' });
+                    return;
+                }
+
+                const receiptData = {
+                    siteId,
+                    customerName,
+                    address,
+                    poNumber,
+                    remarks,
+                    items: cleanedItems,
+                    showPrice,
+                    origin: 'manual'
+                };
+
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            };
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <h2 className="text-2xl font-bold text-gray-800">Manual Delivery Receipt</h2>
+                            <button
+                                type="button"
+                                onClick={handleAddRow}
+                                className="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                            >
+                                ➕ Add Manual Item
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                <option value="">-- Select Site --</option>
+                                {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <input type="text" placeholder="Customer Name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full px-3 py-2 border rounded-lg md:col-span-2" />
+                        </div>
+
+                        <div className="border rounded-lg bg-white">
+                            <div className="max-h-[40vh] overflow-y-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10">
+                                        <tr>
+                                            <th className="p-3 w-20">Qty</th>
+                                            <th className="p-3 w-32">Unit</th>
+                                            <th className="p-3">Description</th>
+                                            <th className="p-3 w-32">Unit Price</th>
+                                            <th className="p-3 w-16"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {items.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={item.dispatchQty}
+                                                        onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <select
+                                                        value={item.unit}
+                                                        onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    >
+                                                        {normalizedUnits.map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="p-2">
+                                                    <textarea
+                                                        value={item.name}
+                                                        onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded resize-none h-20 whitespace-pre-wrap"
+                                                    ></textarea>
+                                                </td>
+                                                <td className="p-2 align-top">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={item.price}
+                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="p-2 align-top text-right">
+                                                    <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {items.length === 0 && (
+                                            <tr>
+                                                <td colSpan="5" className="p-6 text-center text-gray-500">No manual items added yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <textarea
+                            placeholder="Remarks (Optional)"
+                            value={remarks}
+                            onChange={(e) => setRemarks(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-lg min-h-[80px] whitespace-pre-wrap"
+                        ></textarea>
+                        <label className="flex items-center gap-2 text-sm bg-gray-100 px-3 py-2 rounded-lg">
+                            <input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show price & totals on preview
+                        </label>
+
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                            <button onClick={handleFinalize} className="px-6 py-2 bg-teal-600 text-white rounded-full hover:bg-teal-700">Preview & Finalize</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Form for creating a new delivery receipt
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || '');
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [cart, setCart] = useState(initialData?.items || []);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const [selectionState, setSelectionState] = useState({});
+
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || '');
+                    setRemarks(initialData.remarks || '');
+                    setCart(initialData.items || []);
+                    setShowPrice(initialData.showPrice ?? true);
+                } else {
+                    setSiteId('');
+                    setCustomerName('');
+                    setAddress('');
+                    setPoNumber('');
+                    setRemarks('');
+                    setCart([]);
+                    setShowPrice(true);
+                }
+                setSelectionState({});
+            }, [initialData]);
+
+            const filteredInventory = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return inventory;
+                return inventory.filter(i => {
+                    const name = (i.name || '').toLowerCase();
+                    const sku = (i.sku || '').toLowerCase();
+                    return name.includes(term) || sku.includes(term);
+                });
+            }, [inventory, searchTerm]);
+
+            const handleTextChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const getSelectionForItem = (item) => {
+                const options = resolveUnitOptions(item);
+                const defaults = { qty: 1, unit: options[0] };
+                return { ...defaults, ...(selectionState[item.id] || {}) };
+            };
+
+            const updateSelection = (itemId, field, value) => {
+                const nextValue = field === 'qty'
+                    ? value.replace(/[^0-9.]/g, '')
+                    : normalizeUnitValue(value) || value;
+                setSelectionState(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        [field]: nextValue
+                    }
+                }));
+            };
+
+            const addToCart = (item) => {
+                setCart(prev => {
+                    if (prev.find(i => i.id === item.id)) {
+                        setNotification({ type: 'info', message: `${item.name} is already in the list.` });
+                        return prev;
+                    }
+
+                    const selection = getSelectionForItem(item);
+                    const parsedQty = Math.max(0, Number(selection.qty || 0));
+                    if (!parsedQty) {
+                        setNotification({ type: 'error', message: 'Please enter a quantity greater than zero before adding.' });
+                        return prev;
+                    }
+
+                    const inventoryItem = inventory.find(i => i.id === item.id);
+                    if (inventoryItem && parsedQty > Number(inventoryItem.qty)) {
+                        setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                        return prev;
+                    }
+
+                    const nextUnit = normalizeUnitValue(selection.unit || getPrimaryIssuingUnit(item)) || getPrimaryIssuingUnit(item);
+                    return [...prev, { ...item, dispatchQty: parsedQty, unit: nextUnit }];
+                });
+            };
+
+            const updateCartQty = (id, qty) => {
+                const inventoryItem = inventory.find(i => i.id === id);
+                const newQty = Math.max(0, Number(qty));
+                if (inventoryItem && newQty > Number(inventoryItem.qty)) {
+                    setNotification({ type: 'error', message: `Cannot dispatch more than ${inventoryItem.qty} units of ${inventoryItem.name}.` });
+                    setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: Number(inventoryItem.qty) } : i));
+                    return;
+                }
+                setCart(prev => prev.map(i => i.id === id ? { ...i, dispatchQty: newQty } : i));
+            };
+
+            const updateCartUnit = (id, unit) => {
+                const normalized = normalizeUnitValue(unit) || getPrimaryIssuingUnit(cart.find(i => i.id === id) || {});
+                setCart(prev => prev.map(i => i.id === id ? { ...i, unit: normalized } : i));
+            };
+
+            const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+
+            const handleFinalize = () => {
+                const finalCart = cart.filter(i => i.dispatchQty > 0);
+                if (!siteId) { setNotification({ type: 'error', message: 'Please select a site.' }); return; }
+                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item to the receipt.' }); return; }
+
+                const normalizedCart = finalCart.map(item => ({
+                    ...item,
+                    unit: normalizeUnitValue(item.unit) || getPrimaryIssuingUnit(item)
+                }));
+
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: normalizedCart, showPrice };
+                onDraftChange(receiptData);
+                onFinalize(receiptData);
+            }
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Item List & Header */}
+                        <div className="lg:col-span-2 space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
+                            </div>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                 <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                     <option value="">-- Select Site --</option>
+                                     {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                 </select>
+                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                 <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleTextChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                 <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                             </div>
+                            <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="h-[40vh] overflow-y-auto border rounded-lg">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Issuing Unit</th>
+                                            <th className="p-2 w-48">Quantity</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => {
+                                            const selection = getSelectionForItem(item);
+                                            const unitOptions = resolveUnitOptions(item);
+                                            const inCart = cart.some(c => c.id === item.id);
+                                            return (
+                                                <tr key={item.id} className="border-b">
+                                                    <td className="p-2">
+                                                        <div className="flex flex-col">
+                                                            <span>{item.name}</span>
+                                                            <span className="text-xs text-gray-400">({item.sku})</span>
+                                                            <span className="text-xs text-gray-500">Stock: {item.qty}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <select
+                                                            value={selection.unit}
+                                                            onChange={(e) => updateSelection(item.id, 'unit', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                            disabled={inCart}
+                                                        >
+                                                            {unitOptions.map(option => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={selection.qty}
+                                                                onChange={(e) => updateSelection(item.id, 'qty', e.target.value)}
+                                                                className="w-20 p-1 border rounded"
+                                                                disabled={inCart}
+                                                            />
+                                                            <button
+                                                                onClick={() => addToCart(item)}
+                                                                className="bg-teal-500 text-white px-3 py-1 text-xs rounded-full hover:bg-teal-600 disabled:bg-gray-300"
+                                                                disabled={inCart}
+                                                            >
+                                                                {inCart ? 'Added' : 'Add'}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Receipt Cart Column */}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                            <h3 className="text-xl font-bold text-gray-800">Items on Receipt</h3>
+                            <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2 w-32">Unit</th><th className="p-2"></th></tr></thead>
+                                    <tbody>
+                                        {cart.length > 0 ? cart.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name}</td>
+                                                <td className="p-2"><input type="number" value={item.dispatchQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2">
+                                                    <select value={item.unit} onChange={(e) => updateCartUnit(item.id, e.target.value)} className="w-full px-2 py-1 border rounded-md">
+                                                        {resolveUnitOptions(item).map(option => (
+                                                            <option key={option} value={option}>{option}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
+                                            </tr>
+                                        )) : <tr><td colSpan="4" className="text-center p-8 text-gray-500">No items added.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleTextChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <div className="space-y-2 text-sm p-2 bg-gray-100 rounded-md">
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show Price & Totals</label>
+                            </div>
+                             <div className="flex justify-end gap-2 pt-4 border-t">
+                                 <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                     Preview & Finalize
+                                 </button>
+                             </div>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
+        // Modal for showing historical documents (DRs, Orders)
+        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [viewingReceipt, setViewingReceipt] = useState(null);
+
+            const filteredDocuments = useMemo(() => {
+                const baseDocs = documents || [];
+                if (type !== 'dr_manager') return baseDocs;
+                const term = searchTerm.trim().toLowerCase();
+                if (!term) return baseDocs;
+                return baseDocs.filter(doc => {
+                    const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
+                    const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
+                    return number.includes(term) || identifier.includes(term);
+                });
+            }, [documents, searchTerm, type]);
+
+            const finishedCount = useMemo(
+                () => (type === 'dr_manager' ? filteredDocuments : documents || []).filter(doc => doc.status === 'Finished').length,
+                [documents, filteredDocuments, type]
+            );
+            const unreturnedCount = useMemo(
+                () => (type === 'dr_manager' ? filteredDocuments : documents || []).filter(doc => doc.status !== 'Voided' && doc.status !== 'Finished').length,
+                [documents, filteredDocuments, type]
+            );
+
+            const siteCounters = useMemo(() => {
+                if (type !== 'dr_manager') return [];
+                const bySite = (filteredDocuments || []).reduce((acc, doc) => {
+                    const site = doc.siteName || 'Uncategorized';
+                    if (!acc[site]) {
+                        acc[site] = { site, finished: 0, unreturned: 0, total: 0 };
+                    }
+                    acc[site].total += 1;
+                    if (doc.status === 'Finished') {
+                        acc[site].finished += 1;
+                    } else if (doc.status !== 'Voided') {
+                        acc[site].unreturned += 1;
+                    }
+                    return acc;
+                }, {});
+                return Object.values(bySite).sort((a, b) => a.site.localeCompare(b.site));
+            }, [filteredDocuments, type]);
+
+            const siteStatsMap = useMemo(() => siteCounters.reduce((acc, site) => {
+                acc[site.site] = site;
+                return acc;
+            }, {}), [siteCounters]);
+
+            const groupedDocuments = useMemo(() => {
+                const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
+                if (!source.length) return {};
+                if (type !== 'dr_manager') {
+                    return { 'All': source };
+                }
+                return source.reduce((acc, doc) => {
+                    const key = doc.siteName || 'Uncategorized';
+                    if (!acc[key]) {
+                        acc[key] = [];
+                    }
+                    acc[key].push(doc);
+                    return acc;
+                }, {});
+            }, [filteredDocuments, documents, type]);
+
+            const handleView = (doc) => {
+                if (type === 'dr_manager') {
+                    setViewingReceipt(doc);
+                } else if (openDetailView) {
+                    openDetailView(doc);
+                }
+            };
+
+            const hasDocuments = Object.keys(groupedDocuments).length > 0;
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                            {type === 'dr_manager' && viewingReceipt && (
+                                <button onClick={() => setViewingReceipt(null)} className="px-4 py-2 text-sm rounded-full bg-gray-200 hover:bg-gray-300 no-print">Back to List</button>
+                            )}
+                        </div>
+
+                        {type === 'dr_manager' && viewingReceipt ? (
+                            <div className="h-[60vh] overflow-y-auto border rounded-lg p-4 bg-white">
+                                <ReceiptDetailView
+                                    receipt={viewingReceipt}
+                                    template={template}
+                                    onClose={() => setViewingReceipt(null)}
+                                    renderInline={true}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                {type === 'dr_manager' && (
+                                    <div className="space-y-2">
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-100 bg-indigo-50">
+                                                <span className="text-[11px] uppercase tracking-wide text-indigo-500">Finished</span>
+                                                <span className="text-xl font-bold text-indigo-800 leading-none">{finishedCount}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-100 bg-amber-50">
+                                                <span className="text-[11px] uppercase tracking-wide text-amber-600">Unreturned</span>
+                                                <span className="text-xl font-bold text-amber-700 leading-none">{unreturnedCount}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                {type === 'dr_manager' && (
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                        placeholder="Search receipts by number or identifier..."
+                                    />
+                                )}
+                                <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
+                                    {hasDocuments ? (
+                                        Object.entries(groupedDocuments).map(([groupName, docs]) => {
+                                            const siteStats = siteStatsMap[groupName];
+                                            return (
+                                            <div key={groupName} className="mb-8">
+                                                {type === 'dr_manager' && (
+                                                    <div className="flex items-center justify-between gap-3 mb-2 px-2 py-1 rounded-md bg-gray-50 border border-gray-100">
+                                                        <h3 className="text-xl font-bold text-gray-700 truncate">{groupName}</h3>
+                                                        {siteStats && (
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100">{siteStats.finished} finished</span>
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold border border-amber-100">{siteStats.unreturned} open</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <table className="w-full text-left">
+                                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                                        <tr>
+                                                            <th className="p-3">Number</th>
+                                                            <th className="p-3">Date</th>
+                                                            <th className="p-3">Identifier</th>
+                                                            <th className="p-3">Items</th>
+                                                            <th className="p-3">Status</th>
+                                                            <th className="p-3 text-right">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {docs.map(doc => {
+                                                            const getStatusClass = (status) => {
+                                                                if (status === 'Voided') return 'text-red-500 bg-red-100';
+                                                                if (status === 'Finished') return 'text-blue-500 bg-blue-100';
+                                                                if (status === 'Completed') return 'text-green-500 bg-green-100';
+                                                                if (status === 'Pending') return 'text-yellow-600 bg-yellow-100';
+                                                                return 'text-gray-500 bg-gray-100';
+                                                            }
+                                                            return (
+                                                             <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                                 <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                                 <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                                 <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                                 <td className="p-3">{doc.items.length}</td>
+                                                                 <td className="p-3">
+                                                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                                         {doc.status || 'Active'}
+                                                                     </span>
+                                                                 </td>
+                                                                 <td className="p-3 text-right">
+                                                                     <div className="flex gap-2 justify-end">
+                                                                         <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                                         {actions.map(action => (
+                                                                             <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                                         ))}
+                                                                     </div>
+                                                                 </td>
+                                                             </tr>
+                                                            )
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-gray-500 italic">{type === 'dr_manager' ? 'No receipts found.' : 'No records found.'}</div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </Modal>
+            )
+        };
+        
+        // Component to display a detailed, printable receipt view
+        const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText, renderInline = false }) => {
+            const [isSaving, setIsSaving] = useState(false);
+            const [isSaved, setIsSaved] = useState(false);
+
+            const printContent = () => {
+                const printArea = document.getElementById('print-area');
+                if (printArea) {
+                    printArea.innerHTML = document.querySelector('.printable-area').innerHTML;
+                    window.print();
+                }
+            };
+            const totalValue = receipt.items.reduce((sum, item) => sum + ((item.dispatchQty || item.requestedQty) * item.price), 0);
+            
+            const effectiveTemplate = {
+                title: 'DELIVERY RECEIPT', 
+                logoUrl: '', 
+                color: '#dc2626',
+                companyName: 'Your Company LLC',
+                companyAddress: '123 Business Rd, Suite 456, Business City',
+                companyContact: '(123) 456-7890',
+                companyEmail: 'contact@yourcompany.com',
+                signatory1: 'Received by / Date', 
+                signatory2: 'Issued by',
+                signatory3: '',
+                signatory4: '',
+                ...template
+            };
+
+            const showPrice = receipt.showPrice !== false;
+            
+            const handleConfirm = async () => {
+                setIsSaving(true);
+                const success = await onConfirm();
+                setIsSaving(false);
+                if(success) {
+                    setIsSaved(true);
+                }
+            };
+
+            const content = (
+                <div className="printable-area mx-auto w-full max-w-[850px] space-y-6 p-8 bg-white font-serif text-gray-900">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
+                        <div className="w-1/4">
+                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
+                        </div>
+                        <div className="w-3/4 text-right">
+                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
+                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
+                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
+                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
+                        </div>
+                    </div>
+
+                    {/* Title */}
+                    <div className="text-center my-8">
+                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
+                    </div>
+                    
+                    {/* Customer & DR Info */}
+                    <div className="grid grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
+                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                            <p>{receipt.address || 'N/A'}</p>
+                        </div>
+                        <div className="text-right">
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">No.:</span>
+                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
+                            </div>
+                            <div className="grid grid-cols-2">
+                                <span className="font-bold">Date:</span>
+                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
+                            </div>
+                            {receipt.poNumber &&
+                                <div className="grid grid-cols-2">
+                                    <span className="font-bold">P.O. No.:</span>
+                                    <span className="text-right">{receipt.poNumber}</span>
+                                </div>
+                            }
+                            {receipt.drNumber && 
+                                <div className="grid grid-cols-2">
+                                    <span className="font-bold">Site:</span>
+                                    <span className="text-right">{receipt.siteName}</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    {/* Items Table */}
+                    <div className="overflow-x-hidden">
+                        <table className="w-full text-left text-sm table-fixed border-collapse">
+                            <thead className="bg-gray-100">
+                                <tr>
+                                    <th className="w-20 p-2 border">Qty</th>
+                                    <th className="w-24 p-2 border">Unit</th>
+                                    <th className="p-2 border">Description</th>
+                                    {showPrice && <th className="w-32 p-2 border text-right">Unit Price</th>}
+                                    {showPrice && <th className="w-32 p-2 border text-right">Total</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {receipt.items.map(item => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
+                                        <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
+                                        <td className="p-2 border align-top break-words whitespace-pre-wrap">{item.name}</td>
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
+                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                    </tr>
+                                ))}
+                            </tbody>
+                            {showPrice && (
+                                <tfoot className="font-bold">
+                                    <tr>
+                                        <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
+                                        <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
+
+                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px] whitespace-pre-wrap">{receipt.remarks || 'None'}</p></div>}
+                    
+                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
+                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
+                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
+                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
+                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                    </div>
+                </div>
+            );
+
+            if (isPreview) {
+                 return (
+                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
+                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                             <div className="p-8">
+                                 {content}
+                             </div>
+                             <div className="flex justify-end gap-4 p-4 border-t no-print">
+                                 {isSaved ? (
+                                     <>
+                                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                         <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
+                                     </>
+                                 ) : (
+                                     <>
+                                         {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
+                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
+                                         </button>}
+                                     </>
+                                 )}
+                             </div>
+                         </div>
+                     </div>
+                 )
+            }
+
+            if (renderInline) {
+                return (
+                    <div className="space-y-4">
+                        {content}
+                        <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Back to List</button>
+                            <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <Modal onClose={onClose} size="3xl">
+                    {content}
+                     <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                     </div>
+                </Modal>
+            )
+        };
+
+        // Form for non-admin users to request items
+        const UserOrderForm = ({ inventory, onSave, onClose, setNotification, user }) => {
+            const [orderCart, setOrderCart] = useState([]);
+            const [remarks, setRemarks] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isSaving, setIsSaving] = useState(false);
+
+            const filteredInventory = useMemo(() => inventory.filter(i => 
+                (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+            ), [inventory, searchTerm]);
+            
+            const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
+
+            const addToCart = (item) => {
+                setOrderCart(prev => {
+                    if (prev.find(i => i.id === item.id)) {
+                        setNotification({ type: 'info', message: `${item.name} is already in the cart.` });
+                        return prev;
+                    }
+                    return [...prev, { ...item, requestedQty: 1 }];
+                });
+            };
+            
+            const updateCartQty = (id, qty) => setOrderCart(prev => prev.map(i => i.id === id ? { ...i, requestedQty: Math.max(0, Number(qty)) } : i));
+            const removeFromCart = (id) => setOrderCart(prev => prev.filter(i => i.id !== id));
+
+            const handleSave = async () => {
+                const finalCart = orderCart.filter(i => i.requestedQty > 0);
+                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
+                
+                setIsSaving(true);
+                const orderData = {
+                    requestedBy: user.isAnonymous ? `User (${user.uid.substring(0,6)})` : user.email,
+                    remarks,
+                    items: finalCart
+                };
+                await onSave(orderData);
+                setIsSaving(false);
+            };
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Item List Column */}
+                        <div className="lg:col-span-2 space-y-4">
+                            <h2 className="text-2xl font-bold text-gray-800">Create New Order Request</h2>
+                            <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <div className="h-[50vh] overflow-y-auto border rounded-lg">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-50 z-10">
+                                        <tr>
+                                            <th className="p-2">Name</th>
+                                            <th className="p-2">Stock</th>
+                                            <th className="p-2"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredInventory.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name} <span className="text-xs text-gray-400">({item.sku})</span></td>
+                                                <td className="p-2">{item.qty}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => addToCart(item)} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600 disabled:bg-gray-300" disabled={orderCart.some(c => c.id === item.id)}>
+                                                        {orderCart.some(c => c.id === item.id) ? 'Added' : 'Add'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Order Cart Column */}
+                        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+                             <h3 className="text-xl font-bold text-gray-800">Your Order Cart</h3>
+                            <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
+                                    <tbody>
+                                        {orderCart.length > 0 ? orderCart.map(item => (
+                                            <tr key={item.id} className="border-b">
+                                                <td className="p-2">{item.name}</td>
+                                                <td className="p-2"><input type="number" value={item.requestedQty} onChange={e => updateCartQty(item.id, e.target.value)} className="w-20 p-1 border rounded-md" /></td>
+                                                <td className="p-2"><button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold">X</button></td>
+                                            </tr>
+                                        )) : <tr><td colSpan="3" className="text-center p-8 text-gray-500">Cart is empty.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                             <div className="flex justify-end gap-4 pt-4 border-t">
+                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                 <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
+                                     {isSaving ? 'Submitting...' : `Submit Order (${orderCart.filter(i => i.requestedQty > 0).length})`}
+                                 </button>
+                             </div>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const DeliveryReceiptTracker = ({ receipts = [], onOpenManager }) => {
+            const toDate = (timestamp) => {
+                if (!timestamp) return null;
+                if (typeof timestamp.toDate === 'function') return timestamp.toDate();
+                const d = new Date(timestamp);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const finished = receipts.filter(r => r.status === 'Finished');
+            const outstanding = receipts.filter(r => r.status !== 'Voided' && r.status !== 'Finished');
+            const overdue = outstanding.filter(r => {
+                const created = toDate(r.createdAt);
+                if (!created) return false;
+                const diffDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+                return diffDays >= 7;
+            });
+
+            return (
+                <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-6 border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Tracker</p>
+                            <h3 className="text-xl font-bold text-gray-800">Delivery Receipts</h3>
+                            <p className="text-sm text-gray-500">Finished vs unreturned receipts</p>
+                        </div>
+                        <button onClick={onOpenManager} className="px-3 py-2 bg-indigo-600 text-white rounded-full text-xs shadow hover:bg-indigo-700">Open Manager</button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-emerald-50 to-white">
+                            <p className="text-xs text-gray-500">Finished</p>
+                            <p className="text-2xl font-bold text-emerald-700">{finished.length}</p>
+                        </div>
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-amber-50 to-white">
+                            <p className="text-xs text-gray-500">Unreturned</p>
+                            <p className="text-2xl font-bold text-amber-700">{outstanding.length}</p>
+                        </div>
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-rose-50 to-white">
+                            <p className="text-xs text-gray-500">Overdue (&gt;=7d)</p>
+                            <p className="text-2xl font-bold text-rose-700">{overdue.length}</p>
+                        </div>
+                    </div>
+
+                    <div className="h-40 overflow-y-auto border rounded-xl bg-gray-50/60 p-3">
+                        {outstanding.length > 0 ? (
+                            <ul className="space-y-2 text-sm">
+                                {outstanding.slice(0, 5).map(receipt => {
+                                    const created = toDate(receipt.createdAt);
+                                    const overdueTag = overdue.some(o => o.id === receipt.id);
+                                    return (
+                                        <li key={receipt.id} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-start justify-between">
+                                            <div>
+                                                <p className="font-semibold text-gray-800">{receipt.drNumber || receipt.orderNumber || 'N/A'}</p>
+                                                <p className="text-xs text-gray-500">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                                                <p className="text-xs text-gray-400">{created ? created.toLocaleDateString() : 'No date'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`px-2 py-1 text-[11px] rounded-full font-semibold ${overdueTag ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {overdueTag ? 'Overdue' : 'Pending'}
+                                                </span>
+                                                <p className="text-[11px] text-gray-500 mt-1">{Array.isArray(receipt.items) ? `${receipt.items.length} item${receipt.items.length === 1 ? '' : 's'}` : 'N/A'}</p>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : <div className="h-full flex items-center justify-center text-gray-500">No open receipts 🎉</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        const ReportsModal = ({ inventory, deliveryReceipts, settings, onClose, setNotification }) => {
+            const reorderLevel = Number(settings?.reorderLevel || 0);
+            const reportDate = useMemo(() => new Date(), []);
+            const [reportType, setReportType] = useState('inventory');
+
+            const summary = useMemo(() => {
+                const totalItems = inventory.length;
+                const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+                const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+                const lowStockCount = inventory.filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel)).length;
+                const averageUnitValue = totalItems > 0 ? totalValue / totalItems : 0;
+                return { totalItems, totalQuantity, totalValue, lowStockCount, averageUnitValue };
+            }, [inventory, reorderLevel]);
+
+            const lowStockItems = useMemo(() => inventory
+                .filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel))
+                .sort((a, b) => Number(a.qty || 0) - Number(b.qty || 0))
+                .slice(0, 6), [inventory, reorderLevel]);
+
+            const brandBreakdown = useMemo(() => {
+                const map = inventory.reduce((acc, item) => {
+                    const brand = item.brand || 'Unbranded';
+                    if (!acc[brand]) {
+                        acc[brand] = { qty: 0, value: 0 };
+                    }
+                    acc[brand].qty += Number(item.qty || 0);
+                    acc[brand].value += Number(item.qty || 0) * Number(item.price || 0);
+                    return acc;
+                }, {});
+                return Object.entries(map)
+                    .map(([brand, data]) => ({ brand, ...data }))
+                    .sort((a, b) => b.qty - a.qty)
+                    .slice(0, 6);
+            }, [inventory]);
+
+            const topValuedItems = useMemo(() => [...inventory]
+                .map(item => ({ ...item, value: Number(item.qty || 0) * Number(item.price || 0) }))
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 6), [inventory]);
+
+            const recentReceipts = useMemo(() => (deliveryReceipts || [])
+                .slice(0, 6)
+                .map(receipt => ({
+                    id: receipt.id,
+                    number: receipt.drNumber || receipt.orderNumber || 'N/A',
+                    createdAt: receipt.createdAt,
+                    status: receipt.status || 'Active',
+                    count: Array.isArray(receipt.items) ? receipt.items.length : 0,
+                    name: receipt.customerName || receipt.requestedBy || 'N/A'
+                })), [deliveryReceipts]);
+
+            const receiptHealth = useMemo(() => {
+                const finished = (deliveryReceipts || []).filter(r => r.status === 'Finished');
+                const outstanding = (deliveryReceipts || []).filter(r => r.status !== 'Voided' && r.status !== 'Finished');
+                const overdue = outstanding.filter(r => {
+                    const date = r.createdAt?.toDate?.() || new Date(r.createdAt);
+                    if (!date || Number.isNaN(date.getTime())) return false;
+                    const diffDays = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+                    return diffDays >= 7;
+                });
+                return { finished: finished.length, outstanding: outstanding.length, overdue: overdue.length };
+            }, [deliveryReceipts]);
+
+            const toDate = (timestamp) => {
+                if (!timestamp) return '';
+                if (typeof timestamp.toDate === 'function') {
+                    return timestamp.toDate();
+                }
+                const d = new Date(timestamp);
+                return Number.isNaN(d.getTime()) ? '' : d;
+            };
+
+            const buildSummaryText = () => {
+                if (reportType === 'receipts') {
+                    const lines = [
+                        'Delivery Receipt Health Report',
+                        `Finished Receipts: ${receiptHealth.finished}`,
+                        `Unreturned Receipts: ${receiptHealth.outstanding}`,
+                        `Overdue (>=7d): ${receiptHealth.overdue}`,
+                        '',
+                        'Recent Receipts:',
+                        ...recentReceipts.map(r => `- ${r.number} (${r.status}) :: ${r.count} items :: ${toDate(r.createdAt)?.toLocaleDateString?.() || 'N/A'}`)
+                    ];
+                    return lines.join('\n');
+                }
+
+                const lines = [
+                    'Warehouse Inventory Report',
+                    `Total Unique Items: ${summary.totalItems}`,
+                    `Total Quantity: ${summary.totalQuantity}`,
+                    `Inventory Value: ${formatCurrency(summary.totalValue)}`,
+                    `Average Unit Value: ${formatCurrency(summary.averageUnitValue)}`,
+                    `Low Stock Items: ${summary.lowStockCount}`,
+                    `Finished Receipts: ${receiptHealth.finished}`,
+                    `Unreturned Receipts: ${receiptHealth.outstanding}`,
+                    '',
+                    'Top Valued Items:',
+                    ...topValuedItems.map(item => `- ${item.name} (${item.sku}): ${formatCurrency(item.value)}`)
+                ];
+                return lines.join('\n');
+            };
+
+            const handleCopySummary = async () => {
+                const text = buildSummaryText();
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setNotification?.({ type: 'success', message: 'Report summary copied to clipboard.' });
+                } catch (error) {
+                    console.error('Copy failed', error);
+                    setNotification?.({ type: 'error', message: 'Unable to copy summary. Please try again.' });
+                }
+            };
+
+            const handleExportCsv = () => {
+                const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+                const lines = [];
+
+                const addMetric = (section, metric, value) => {
+                    lines.push([section, metric, value].map(escape).join(','));
+                };
+
+                const title = reportType === 'receipts' ? 'Delivery Receipt Health Report' : 'Warehouse Inventory Report';
+                lines.push([escape(title), escape(reportDate.toLocaleString())].join(','));
+                lines.push('');
+                lines.push(['Section', 'Metric', 'Value'].map(escape).join(','));
+
+                if (reportType === 'receipts') {
+                    addMetric('Receipts', 'Finished', receiptHealth.finished);
+                    addMetric('Receipts', 'Unreturned', receiptHealth.outstanding);
+                    addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
+                    lines.push('');
+                    lines.push(['DR Health Detail', '', '', '', '', ''].map(escape).join(','));
+                    const headers = ['DR Number', 'Customer / Site', 'Status', 'Created At', 'Items', 'Age (days)'];
+                    lines.push(headers.map(escape).join(','));
+                    recentReceipts.forEach(receipt => {
+                        const created = toDate(receipt.createdAt);
+                        const ageDays = created ? Math.round((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)) : '';
+                        const row = [
+                            receipt.number,
+                            receipt.name,
+                            receipt.status,
+                            created?.toLocaleString?.() || '',
+                            receipt.count,
+                            ageDays
+                        ];
+                        lines.push(row.map(escape).join(','));
+                    });
+                } else {
+                    addMetric('Inventory', 'Total Unique Items', summary.totalItems);
+                    addMetric('Inventory', 'Total Quantity', summary.totalQuantity);
+                    addMetric('Inventory', 'Inventory Value', formatCurrency(summary.totalValue));
+                    addMetric('Inventory', 'Average Unit Value', formatCurrency(summary.averageUnitValue));
+                    addMetric('Inventory', 'Low Stock Items', summary.lowStockCount);
+                    addMetric('Receipts', 'Finished Receipts', receiptHealth.finished);
+                    addMetric('Receipts', 'Unreturned Receipts', receiptHealth.outstanding);
+                    addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
+
+                    lines.push('');
+                    lines.push(['Inventory Detail', '', '', '', '', '', '', ''].map(escape).join(','));
+                    const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
+                    lines.push(headers.map(escape).join(','));
+                    inventory.forEach(item => {
+                        const row = [
+                            item.sku,
+                            item.name,
+                            item.brand || '',
+                            item.qty,
+                            item.unit || item.issuingUnit || '',
+                            item.price,
+                            (Number(item.qty || 0) * Number(item.price || 0)).toFixed(2),
+                            item.reorderLevel ?? reorderLevel
+                        ];
+                        lines.push(row.map(escape).join(','));
+                    });
+                }
+
+                const csvContent = lines.join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${reportType}-report-${reportDate.toISOString().slice(0,10)}.csv`;
+                link.click();
+                URL.revokeObjectURL(link.href);
+                setNotification?.({ type: 'success', message: `${reportType === 'receipts' ? 'Receipt' : 'Inventory'} report exported as CSV.` });
+            };
+
+            const handlePrintReport = () => {
+                window.print();
+            };
+
+            return (
+                <Modal onClose={onClose} size="5xl">
+                    <div className="space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <img src="https://i.imgur.com/s6WXWGg.png" alt="Company Logo" className="h-12 w-12 rounded-xl border border-gray-200 shadow-sm" />
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Warehouse Report</p>
+                                    <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
+                                    <p className="text-gray-500">Clean, printable snapshots across inventory and delivery receipts.</p>
+                                    <p className="text-xs text-gray-400 mt-1">Generated: {reportDate.toLocaleString()}</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col sm:items-end gap-2 w-full sm:w-auto">
+                                <div className="bg-gray-100 rounded-full p-1 flex gap-1 self-start sm:self-end no-print">
+                                    {['inventory', 'receipts'].map(type => (
+                                        <button
+                                            key={type}
+                                            onClick={() => setReportType(type)}
+                                            className={`px-3 py-1 text-sm rounded-full transition ${reportType === type ? 'bg-white shadow-sm font-semibold text-indigo-700' : 'text-gray-600 hover:text-indigo-700'}`}
+                                        >
+                                            {type === 'inventory' ? 'Inventory Report' : 'Delivery Receipt Report'}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-end no-print">
+                                    <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
+                                    <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Download CSV</button>
+                                    <button onClick={handlePrintReport} className="px-4 py-2 bg-gray-800 text-white rounded-full text-sm shadow-sm hover:bg-gray-900">Print Report</button>
+                                </div>
                             </div>
                         </div>
 
@@ -3023,11 +4533,14 @@
                         
                         <div className="container mx-auto p-4 sm:p-6 lg:p-8">
                             <header className="flex flex-wrap justify-between items-center gap-4 mb-8 bg-white/80 backdrop-blur rounded-2xl shadow-lg px-6 py-4 border border-gray-100">
-                                <div>
-                                    <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
-                                    <p className="text-gray-500 mt-1">
-                                        Status: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator Mode" : "User Mode"}</span>
-                                    </p>
+                                <div className="flex items-center gap-3">
+                                    <img src="https://i.imgur.com/s6WXWGg.png" alt="Company Logo" className="h-12 w-12 rounded-xl border border-gray-200 shadow-sm" />
+                                    <div>
+                                        <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
+                                        <p className="text-gray-500 mt-1">
+                                            Status: <span className={isAdminMode ? "font-bold text-indigo-600" : ""}>{isAdminMode ? "Administrator Mode" : "User Mode"}</span>
+                                        </p>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
                                      <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
