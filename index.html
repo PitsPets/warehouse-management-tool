@@ -1436,7 +1436,7 @@
                                     {hasDocuments ? (
                                         Object.entries(groupedDocuments).map(([groupName, docs]) => {
                                             const finishedCount = docs.filter(doc => doc.status === 'Finished').length;
-                                            const unreturnedCount = docs.filter(doc => doc.status === 'Active').length;
+                                            const unreturnedCount = docs.filter(doc => doc.status !== 'Finished' && doc.status !== 'Voided').length;
                                             return (
                                                 <div key={groupName} className="mb-8">
                                                     {type === 'dr_manager' && (
@@ -1613,7 +1613,7 @@
                                     <tr key={item.id} className="border-b">
                                         <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
                                         <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
-                                        <td className="p-2 border align-top break-words">{item.name}</td>
+                                        <td className="p-2 border align-top break-words whitespace-pre-line">{item.name}</td>
                                         {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
                                         {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
                                     </tr>
