@@ -1487,6 +1487,11 @@
                 return Object.values(bySite).sort((a, b) => a.site.localeCompare(b.site));
             }, [filteredDocuments, type]);
 
+            const siteStatsMap = useMemo(() => siteCounters.reduce((acc, site) => {
+                acc[site.site] = site;
+                return acc;
+            }, {}), [siteCounters]);
+
             const groupedDocuments = useMemo(() => {
                 const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
                 if (!source.length) return {};
@@ -1546,34 +1551,6 @@
                                                 <span className="text-xl font-bold text-amber-700 leading-none">{unreturnedCount}</span>
                                             </div>
                                         </div>
-                                        {siteCounters.length > 0 && (
-                                            <div className="rounded-lg border border-gray-200 bg-white">
-                                                <div className="px-3 py-2 flex items-center justify-between text-xs text-gray-500 uppercase tracking-[0.12em]">
-                                                    <span>Receipts by Site</span>
-                                                    <span className="text-[11px] text-gray-400">{siteCounters.length} locations</span>
-                                                </div>
-                                                <ul className="divide-y divide-gray-100">
-                                                    {siteCounters.map(site => (
-                                                        <li key={site.site} className="px-3 py-2 flex items-center justify-between text-sm">
-                                                            <div className="flex items-center gap-2 min-w-0">
-                                                                <span className="font-semibold text-gray-800 truncate">{site.site}</span>
-                                                                <span className="text-xs text-gray-500">{site.total} total</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">
-                                                                    <span className="h-2 w-2 rounded-full bg-indigo-400"></span>
-                                                                    {site.finished}
-                                                                </span>
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">
-                                                                    <span className="h-2 w-2 rounded-full bg-amber-400"></span>
-                                                                    {site.unreturned}
-                                                                </span>
-                                                            </div>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
                                 {type === 'dr_manager' && (
@@ -1587,9 +1564,21 @@
                                 )}
                                 <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
                                     {hasDocuments ? (
-                                        Object.entries(groupedDocuments).map(([groupName, docs]) => (
+                                        Object.entries(groupedDocuments).map(([groupName, docs]) => {
+                                            const siteStats = siteStatsMap[groupName];
+                                            return (
                                             <div key={groupName} className="mb-8">
-                                                {type === 'dr_manager' && <h3 className="text-xl font-bold text-gray-700 mb-2 p-2 bg-gray-100 rounded-md">{groupName}</h3>}
+                                                {type === 'dr_manager' && (
+                                                    <div className="flex items-center justify-between gap-3 mb-2 px-2 py-1 rounded-md bg-gray-50 border border-gray-100">
+                                                        <h3 className="text-xl font-bold text-gray-700 truncate">{groupName}</h3>
+                                                        {siteStats && (
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100">{siteStats.finished} finished</span>
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold border border-amber-100">{siteStats.unreturned} open</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <table className="w-full text-left">
                                                     <thead className="sticky top-0 bg-gray-50 z-10">
                                                         <tr>
@@ -1635,7 +1624,8 @@
                                                     </tbody>
                                                 </table>
                                             </div>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <div className="h-full flex items-center justify-center text-gray-500 italic">{type === 'dr_manager' ? 'No receipts found.' : 'No records found.'}</div>
                                     )}
@@ -2010,6 +2000,7 @@
 
         const ReportsModal = ({ inventory, deliveryReceipts, settings, onClose, setNotification }) => {
             const reorderLevel = Number(settings?.reorderLevel || 0);
+            const reportDate = useMemo(() => new Date(), []);
 
             const summary = useMemo(() => {
                 const totalItems = inventory.length;
@@ -2107,26 +2098,55 @@
             };
 
             const handleExportCsv = () => {
-                const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
                 const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-                const rows = inventory.map(item => [
-                    escape(item.sku),
-                    escape(item.name),
-                    escape(item.brand || ''),
-                    escape(item.qty),
-                    escape(item.unit || item.issuingUnit || ''),
-                    escape(item.price),
-                    escape((Number(item.qty || 0) * Number(item.price || 0)).toFixed(2)),
-                    escape(item.reorderLevel ?? reorderLevel)
-                ].join(','));
-                const csvContent = [headers.join(','), ...rows].join('\n');
+                const lines = [];
+
+                const addMetric = (section, metric, value) => {
+                    lines.push([section, metric, value].map(escape).join(','));
+                };
+
+                lines.push([escape('Warehouse Performance Report'), escape(reportDate.toLocaleString())].join(','));
+                lines.push('');
+                lines.push(['Section', 'Metric', 'Value'].map(escape).join(','));
+                addMetric('Inventory', 'Total Unique Items', summary.totalItems);
+                addMetric('Inventory', 'Total Quantity', summary.totalQuantity);
+                addMetric('Inventory', 'Inventory Value', formatCurrency(summary.totalValue));
+                addMetric('Inventory', 'Average Unit Value', formatCurrency(summary.averageUnitValue));
+                addMetric('Inventory', 'Low Stock Items', summary.lowStockCount);
+                addMetric('Receipts', 'Finished Receipts', receiptHealth.finished);
+                addMetric('Receipts', 'Unreturned Receipts', receiptHealth.outstanding);
+                addMetric('Receipts', 'Overdue (>=7d)', receiptHealth.overdue);
+
+                lines.push('');
+                lines.push(['Inventory Detail', '', '', '', '', '', '', ''].map(escape).join(','));
+                const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
+                lines.push(headers.map(escape).join(','));
+                inventory.forEach(item => {
+                    const row = [
+                        item.sku,
+                        item.name,
+                        item.brand || '',
+                        item.qty,
+                        item.unit || item.issuingUnit || '',
+                        item.price,
+                        (Number(item.qty || 0) * Number(item.price || 0)).toFixed(2),
+                        item.reorderLevel ?? reorderLevel
+                    ];
+                    lines.push(row.map(escape).join(','));
+                });
+
+                const csvContent = lines.join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = `warehouse-report-${new Date().toISOString().slice(0,10)}.csv`;
+                link.download = `warehouse-report-${reportDate.toISOString().slice(0,10)}.csv`;
                 link.click();
                 URL.revokeObjectURL(link.href);
                 setNotification?.({ type: 'success', message: 'Report exported as CSV.' });
+            };
+
+            const handlePrintReport = () => {
+                window.print();
             };
 
             return (
@@ -2134,12 +2154,15 @@
                     <div className="space-y-6">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                             <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Warehouse Report</p>
                                 <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
-                                <p className="text-gray-500">Track overall performance, value, receipt health, and risk areas.</p>
+                                <p className="text-gray-500">Clean, printable snapshot of performance and risk across inventory and receipts.</p>
+                                <p className="text-xs text-gray-400 mt-1">Generated: {reportDate.toLocaleString()}</p>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2 justify-end no-print">
                                 <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
-                                <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Export CSV</button>
+                                <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Download CSV</button>
+                                <button onClick={handlePrintReport} className="px-4 py-2 bg-gray-800 text-white rounded-full text-sm shadow-sm hover:bg-gray-900">Print Report</button>
                             </div>
                         </div>
 
