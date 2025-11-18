@@ -232,24 +232,108 @@
             const totalItems = inventory.length;
             const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
             const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+            const averageUnitValue = totalItems > 0 ? totalValue / totalItems : 0;
+            const zeroStock = inventory.filter(item => Number(item.qty || 0) === 0).length;
+
             const stats = [
-                { name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
-                { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
-                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
+                { name: 'Total Unique Items', value: totalItems, icon: '📦', tone: 'from-indigo-500 to-indigo-600' },
+                { name: 'Total Quantity', value: totalQuantity, icon: '📊', tone: 'from-emerald-500 to-emerald-600' },
+                { name: 'Inventory Value', value: formatCurrency(totalValue), icon: '💰', tone: 'from-amber-500 to-amber-600' },
+                { name: 'Avg. Unit Value', value: formatCurrency(averageUnitValue), icon: '🧮', tone: 'from-sky-500 to-sky-600' }
             ];
+
             return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-6 border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Overview</p>
+                            <h3 className="text-xl font-bold text-gray-800">Inventory Pulse</h3>
+                        </div>
+                        <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-600">{zeroStock} item{zeroStock === 1 ? '' : 's'} at zero</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {stats.map(stat => (
-                            <div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                                <div className="text-3xl">{stat.icon}</div>
-                                <div>
-                                    <p className="text-sm text-gray-500">{stat.name}</p>
-                                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+                            <div key={stat.name} className="rounded-xl p-[1px] bg-gradient-to-br from-gray-200 to-gray-50 shadow-sm">
+                                <div className="bg-white rounded-[11px] p-4 h-full flex items-start gap-4">
+                                    <div className={`h-12 w-12 rounded-xl bg-gradient-to-br ${stat.tone} text-white flex items-center justify-center text-2xl shadow-inner`}>{stat.icon}</div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">{stat.name}</p>
+                                        <p className="text-xl font-bold text-gray-900">{stat.value}</p>
+                                    </div>
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const InventoryAnalyzer = ({ inventory, settings }) => {
+            const reorderLevel = Number(settings?.reorderLevel || 0);
+            const lowStock = inventory.filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel));
+            const zeroStock = inventory.filter(item => Number(item.qty || 0) === 0);
+            const healthy = inventory.filter(item => Number(item.qty || 0) > Number(item.reorderLevel ?? reorderLevel)).length;
+            const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+            const topValued = [...inventory]
+                .map(item => ({ ...item, value: Number(item.qty || 0) * Number(item.price || 0) }))
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 3);
+            const topValueShare = totalValue > 0
+                ? Math.round((topValued.reduce((sum, item) => sum + item.value, 0) / totalValue) * 100)
+                : 0;
+
+            const analyzerNotes = [
+                `${lowStock.length} item${lowStock.length === 1 ? '' : 's'} at or below reorder level`,
+                `${zeroStock.length} item${zeroStock.length === 1 ? '' : 's'} are currently out of stock`,
+                `${healthy} item${healthy === 1 ? '' : 's'} have comfortable coverage`,
+                topValued.length > 0 ? `${topValueShare}% of value is concentrated in top ${topValued.length} SKU${topValued.length === 1 ? '' : 's'}` : 'No value concentration yet'
+            ];
+
+            return (
+                <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-6 border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Analyzer</p>
+                            <h3 className="text-xl font-bold text-gray-800">Inventory Health & Focus</h3>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span className="h-2 w-2 rounded-full bg-orange-400"></span> Risk spots
+                            <span className="h-2 w-2 rounded-full bg-emerald-400"></span> Stable
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-amber-100 shadow-sm">
+                            <p className="text-sm font-semibold text-amber-700 mb-2">Risk Radar</p>
+                            <div className="space-y-2 text-sm text-amber-800">
+                                <p className="flex justify-between"><span>Low stock</span><span className="font-bold">{lowStock.length}</span></p>
+                                <p className="flex justify-between"><span>Out of stock</span><span className="font-bold">{zeroStock.length}</span></p>
+                                <p className="flex justify-between"><span>Stable</span><span className="font-bold">{healthy}</span></p>
+                            </div>
+                        </div>
+                        <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 shadow-sm">
+                            <p className="text-sm font-semibold text-indigo-700 mb-2">Value Concentration</p>
+                            <p className="text-3xl font-bold text-indigo-900 mb-3">{topValueShare}%</p>
+                            <ul className="space-y-1 text-sm text-indigo-800">
+                                {topValued.map(item => (
+                                    <li key={item.id} className="flex justify-between">
+                                        <span className="truncate mr-2">{item.name}</span>
+                                        <span className="font-semibold">{formatCurrency(item.value)}</span>
+                                    </li>
+                                ))}
+                                {topValued.length === 0 && <li className="text-indigo-500">No items yet</li>}
+                            </ul>
+                        </div>
+                        <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100 shadow-sm">
+                            <p className="text-sm font-semibold text-emerald-700 mb-2">Actionables</p>
+                            <ul className="text-sm text-emerald-800 space-y-2">
+                                {analyzerNotes.map((note, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                        <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400"></span>
+                                        <span>{note}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     </div>
                 </div>
             );
@@ -1782,6 +1866,384 @@
                 </Modal>
             );
         };
+
+        const DeliveryReceiptTracker = ({ receipts = [], onOpenManager }) => {
+            const toDate = (timestamp) => {
+                if (!timestamp) return null;
+                if (typeof timestamp.toDate === 'function') return timestamp.toDate();
+                const d = new Date(timestamp);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const finished = receipts.filter(r => r.status === 'Finished');
+            const outstanding = receipts.filter(r => r.status !== 'Voided' && r.status !== 'Finished');
+            const overdue = outstanding.filter(r => {
+                const created = toDate(r.createdAt);
+                if (!created) return false;
+                const diffDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+                return diffDays >= 7;
+            });
+
+            return (
+                <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-6 border border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Tracker</p>
+                            <h3 className="text-xl font-bold text-gray-800">Delivery Receipts</h3>
+                            <p className="text-sm text-gray-500">Finished vs unreturned receipts</p>
+                        </div>
+                        <button onClick={onOpenManager} className="px-3 py-2 bg-indigo-600 text-white rounded-full text-xs shadow hover:bg-indigo-700">Open Manager</button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-emerald-50 to-white">
+                            <p className="text-xs text-gray-500">Finished</p>
+                            <p className="text-2xl font-bold text-emerald-700">{finished.length}</p>
+                        </div>
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-amber-50 to-white">
+                            <p className="text-xs text-gray-500">Unreturned</p>
+                            <p className="text-2xl font-bold text-amber-700">{outstanding.length}</p>
+                        </div>
+                        <div className="p-3 rounded-xl border border-gray-100 bg-gradient-to-br from-rose-50 to-white">
+                            <p className="text-xs text-gray-500">Overdue (&gt;=7d)</p>
+                            <p className="text-2xl font-bold text-rose-700">{overdue.length}</p>
+                        </div>
+                    </div>
+
+                    <div className="h-40 overflow-y-auto border rounded-xl bg-gray-50/60 p-3">
+                        {outstanding.length > 0 ? (
+                            <ul className="space-y-2 text-sm">
+                                {outstanding.slice(0, 5).map(receipt => {
+                                    const created = toDate(receipt.createdAt);
+                                    const overdueTag = overdue.some(o => o.id === receipt.id);
+                                    return (
+                                        <li key={receipt.id} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-start justify-between">
+                                            <div>
+                                                <p className="font-semibold text-gray-800">{receipt.drNumber || receipt.orderNumber || 'N/A'}</p>
+                                                <p className="text-xs text-gray-500">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
+                                                <p className="text-xs text-gray-400">{created ? created.toLocaleDateString() : 'No date'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`px-2 py-1 text-[11px] rounded-full font-semibold ${overdueTag ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {overdueTag ? 'Overdue' : 'Pending'}
+                                                </span>
+                                                <p className="text-[11px] text-gray-500 mt-1">{Array.isArray(receipt.items) ? `${receipt.items.length} item${receipt.items.length === 1 ? '' : 's'}` : 'N/A'}</p>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : <div className="h-full flex items-center justify-center text-gray-500">No open receipts 🎉</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        const ReportsModal = ({ inventory, deliveryReceipts, settings, onClose, setNotification }) => {
+            const reorderLevel = Number(settings?.reorderLevel || 0);
+
+            const summary = useMemo(() => {
+                const totalItems = inventory.length;
+                const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+                const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+                const lowStockCount = inventory.filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel)).length;
+                const averageUnitValue = totalItems > 0 ? totalValue / totalItems : 0;
+                return { totalItems, totalQuantity, totalValue, lowStockCount, averageUnitValue };
+            }, [inventory, reorderLevel]);
+
+            const lowStockItems = useMemo(() => inventory
+                .filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel))
+                .sort((a, b) => Number(a.qty || 0) - Number(b.qty || 0))
+                .slice(0, 6), [inventory, reorderLevel]);
+
+            const brandBreakdown = useMemo(() => {
+                const map = inventory.reduce((acc, item) => {
+                    const brand = item.brand || 'Unbranded';
+                    if (!acc[brand]) {
+                        acc[brand] = { qty: 0, value: 0 };
+                    }
+                    acc[brand].qty += Number(item.qty || 0);
+                    acc[brand].value += Number(item.qty || 0) * Number(item.price || 0);
+                    return acc;
+                }, {});
+                return Object.entries(map)
+                    .map(([brand, data]) => ({ brand, ...data }))
+                    .sort((a, b) => b.qty - a.qty)
+                    .slice(0, 6);
+            }, [inventory]);
+
+            const topValuedItems = useMemo(() => [...inventory]
+                .map(item => ({ ...item, value: Number(item.qty || 0) * Number(item.price || 0) }))
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 6), [inventory]);
+
+            const recentReceipts = useMemo(() => (deliveryReceipts || [])
+                .slice(0, 6)
+                .map(receipt => ({
+                    id: receipt.id,
+                    number: receipt.drNumber || receipt.orderNumber || 'N/A',
+                    createdAt: receipt.createdAt,
+                    status: receipt.status || 'Active',
+                    count: Array.isArray(receipt.items) ? receipt.items.length : 0,
+                    name: receipt.customerName || receipt.requestedBy || 'N/A'
+                })), [deliveryReceipts]);
+
+            const receiptHealth = useMemo(() => {
+                const finished = (deliveryReceipts || []).filter(r => r.status === 'Finished');
+                const outstanding = (deliveryReceipts || []).filter(r => r.status !== 'Voided' && r.status !== 'Finished');
+                const overdue = outstanding.filter(r => {
+                    const date = r.createdAt?.toDate?.() || new Date(r.createdAt);
+                    if (!date || Number.isNaN(date.getTime())) return false;
+                    const diffDays = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+                    return diffDays >= 7;
+                });
+                return { finished: finished.length, outstanding: outstanding.length, overdue: overdue.length };
+            }, [deliveryReceipts]);
+
+            const toDate = (timestamp) => {
+                if (!timestamp) return '';
+                if (typeof timestamp.toDate === 'function') {
+                    return timestamp.toDate();
+                }
+                const d = new Date(timestamp);
+                return Number.isNaN(d.getTime()) ? '' : d;
+            };
+
+            const buildSummaryText = () => {
+                const lines = [
+                    'Warehouse Report Summary',
+                    `Total Unique Items: ${summary.totalItems}`,
+                    `Total Quantity: ${summary.totalQuantity}`,
+                    `Inventory Value: ${formatCurrency(summary.totalValue)}`,
+                    `Average Unit Value: ${formatCurrency(summary.averageUnitValue)}`,
+                    `Low Stock Items: ${summary.lowStockCount}`,
+                    `Finished Receipts: ${receiptHealth.finished}`,
+                    `Unreturned Receipts: ${receiptHealth.outstanding}`,
+                    '',
+                    'Top Valued Items:',
+                    ...topValuedItems.map(item => `- ${item.name} (${item.sku}): ${formatCurrency(item.value)}`)
+                ];
+                return lines.join('\n');
+            };
+
+            const handleCopySummary = async () => {
+                const text = buildSummaryText();
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setNotification?.({ type: 'success', message: 'Report summary copied to clipboard.' });
+                } catch (error) {
+                    console.error('Copy failed', error);
+                    setNotification?.({ type: 'error', message: 'Unable to copy summary. Please try again.' });
+                }
+            };
+
+            const handleExportCsv = () => {
+                const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
+                const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+                const rows = inventory.map(item => [
+                    escape(item.sku),
+                    escape(item.name),
+                    escape(item.brand || ''),
+                    escape(item.qty),
+                    escape(item.unit || item.issuingUnit || ''),
+                    escape(item.price),
+                    escape((Number(item.qty || 0) * Number(item.price || 0)).toFixed(2)),
+                    escape(item.reorderLevel ?? reorderLevel)
+                ].join(','));
+                const csvContent = [headers.join(','), ...rows].join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `warehouse-report-${new Date().toISOString().slice(0,10)}.csv`;
+                link.click();
+                URL.revokeObjectURL(link.href);
+                setNotification?.({ type: 'success', message: 'Report exported as CSV.' });
+            };
+
+            return (
+                <Modal onClose={onClose} size="5xl">
+                    <div className="space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
+                                <p className="text-gray-500">Track overall performance, value, receipt health, and risk areas.</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
+                                <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Export CSV</button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Total Items</p>
+                                <p className="text-2xl font-bold">{summary.totalItems}</p>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Total Quantity</p>
+                                <p className="text-2xl font-bold">{summary.totalQuantity.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Inventory Value</p>
+                                <p className="text-2xl font-bold">{formatCurrency(summary.totalValue)}</p>
+                            </div>
+                            <div className={`border rounded-xl p-4 shadow-sm ${summary.lowStockCount > 0 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                                <p className="text-xs uppercase text-gray-500">Low Stock Items</p>
+                                <p className="text-2xl font-bold">{summary.lowStockCount}</p>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Avg. Unit Value</p>
+                                <p className="text-2xl font-bold">{formatCurrency(summary.averageUnitValue)}</p>
+                            </div>
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-indigo-600">Finished Receipts</p>
+                                <p className="text-2xl font-bold text-indigo-800">{receiptHealth.finished}</p>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-amber-600">Unreturned Receipts</p>
+                                <p className="text-2xl font-bold text-amber-800">{receiptHealth.outstanding}</p>
+                            </div>
+                            <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-rose-600">Overdue (&gt;=7d)</p>
+                                <p className="text-2xl font-bold text-rose-800">{receiptHealth.overdue}</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-lg font-bold text-gray-800">Low Stock Watchlist</h3>
+                                    <span className="text-xs text-gray-500">Threshold: {reorderLevel}</span>
+                                </div>
+                                <div className="h-64 overflow-y-auto">
+                                    {lowStockItems.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Item</th>
+                                                    <th className="p-2 text-left">Qty</th>
+                                                    <th className="p-2 text-left">Reorder</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {lowStockItems.map(item => (
+                                                    <tr key={item.id} className="border-b">
+                                                        <td className="p-2">{item.name}</td>
+                                                        <td className="p-2 text-orange-600 font-semibold">{item.qty}</td>
+                                                        <td className="p-2 text-gray-600">{item.reorderLevel ?? reorderLevel}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">All items are above the reorder threshold.</p>}
+                                </div>
+                            </div>
+
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Stock by Brand</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {brandBreakdown.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Brand</th>
+                                                    <th className="p-2 text-left">Qty</th>
+                                                    <th className="p-2 text-left">Value</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {brandBreakdown.map(row => (
+                                                    <tr key={row.brand} className="border-b">
+                                                        <td className="p-2">{row.brand}</td>
+                                                        <td className="p-2">{row.qty.toLocaleString()}</td>
+                                                        <td className="p-2">{formatCurrency(row.value)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">No brand data available.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Top Valued Items</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {topValuedItems.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Item</th>
+                                                    <th className="p-2 text-left">Value</th>
+                                                    <th className="p-2 text-left">Stock</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {topValuedItems.map(item => (
+                                                    <tr key={item.id} className="border-b">
+                                                        <td className="p-2">{item.name}</td>
+                                                        <td className="p-2">{formatCurrency(item.value)}</td>
+                                                        <td className="p-2">{item.qty}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">No inventory available.</p>}
+                                </div>
+                            </div>
+
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Recent Receipts & Orders</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {recentReceipts.length > 0 ? (
+                                        <ul className="space-y-2 text-sm">
+                                            {recentReceipts.map(receipt => (
+                                                <li key={receipt.id} className="flex justify-between items-start border-b pb-2">
+                                                    <div>
+                                                        <p className="font-semibold text-gray-800">{receipt.number}</p>
+                                                        <p className="text-gray-500 text-xs">{receipt.name}</p>
+                                                    </div>
+                                                    <div className="text-right text-xs text-gray-500">
+                                                        <p>{toDate(receipt.createdAt)?.toLocaleDateString?.() || 'N/A'}</p>
+                                                        <p className="font-semibold text-gray-700">{receipt.count} items</p>
+                                                        <p className="uppercase text-[11px] text-indigo-600">{receipt.status}</p>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : <p className="text-gray-500 text-sm">No recent documents.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="lg:col-span-2 bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Inventory Analyzer</h3>
+                                <ul className="space-y-2 text-sm text-gray-700">
+                                    <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Low-stock coverage</span><span className="font-semibold text-orange-600">{summary.lowStockCount} items at risk</span></li>
+                                    <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Value concentration</span><span className="font-semibold text-indigo-700">Top 3 SKUs hold {topValuedItems.length ? `${Math.round((topValuedItems.reduce((sum, item) => sum + (item.value || 0), 0) / (summary.totalValue || 1)) * 100)}%` : '0%'}</span></li>
+                                    <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Healthy coverage</span><span className="font-semibold text-emerald-700">{summary.totalItems - summary.lowStockCount} stable SKUs</span></li>
+                                    <li className="flex justify-between bg-gray-50 p-2 rounded-lg"><span>Receipt throughput</span><span className="font-semibold text-indigo-700">{receiptHealth.finished} finished / {receiptHealth.outstanding} open</span></li>
+                                </ul>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Receipt Tracker</h3>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between bg-indigo-50 border border-indigo-100 rounded-lg p-2"><span className="text-indigo-700">Finished</span><span className="font-semibold text-indigo-900">{receiptHealth.finished}</span></div>
+                                    <div className="flex justify-between bg-amber-50 border border-amber-100 rounded-lg p-2"><span className="text-amber-700">Unreturned</span><span className="font-semibold text-amber-900">{receiptHealth.outstanding}</span></div>
+                                    <div className="flex justify-between bg-rose-50 border border-rose-100 rounded-lg p-2"><span className="text-rose-700">Overdue (&gt;=7d)</span><span className="font-semibold text-rose-900">{receiptHealth.overdue}</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
         
         // Modal for editing the printable document template
         const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
@@ -2454,10 +2916,10 @@
 
             return (
                 <>
-                    <div className="min-h-screen font-sans text-gray-800">
+                    <div className="min-h-screen font-sans text-gray-800 bg-gradient-to-br from-slate-50 via-white to-indigo-50">
                         <style>{`
-                            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); 
-                            body { font-family: 'Poppins', sans-serif; } 
+                            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+                            body { font-family: 'Poppins', sans-serif; }
                             @keyframes scale-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
                             .animate-scale-in{animation:scale-in .2s ease-out forwards} 
                             
@@ -2468,7 +2930,7 @@
                         `}</style>
                         
                         <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-                            <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
+                            <header className="flex flex-wrap justify-between items-center gap-4 mb-8 bg-white/80 backdrop-blur rounded-2xl shadow-lg px-6 py-4 border border-gray-100">
                                 <div>
                                     <h1 className="text-4xl font-bold text-gray-900">Warehouse Management</h1>
                                     <p className="text-gray-500 mt-1">
@@ -2497,26 +2959,33 @@
                                      )}
                                      
                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('reports')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📊 Reports</button>
                                     <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
                             
-                            <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                <div className="lg:col-span-3"><StatsWidget inventory={inventory} /></div>
-                                <LowStockWidget inventory={inventory} settings={settings} onRestock={handleAddToRestockCart} setNotification={setNotification} />
-                                <AllInventoryWidget 
-                                    inventory={inventory}
-                                    onEdit={(item) => openModal('item', item)} 
-                                    onDelete={handleDeleteItem} 
-                                    onAdjustStock={(item) => openModal('stock', item)}
-                                    isLoading={isLoading} 
-                                    searchTerm={searchTerm} 
-                                    setSearchTerm={setSearchTerm} 
-                                    isAdminMode={isAdminMode}
-                                    settings={settings} 
-                                />
-                                 <LogsWidget isLoading={isLoading} appId={appId} />
+                            <main className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                <div className="xl:col-span-2 space-y-6">
+                                    <StatsWidget inventory={inventory} />
+                                    <InventoryAnalyzer inventory={inventory} settings={settings} />
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <LowStockWidget inventory={inventory} settings={settings} onRestock={handleAddToRestockCart} setNotification={setNotification} />
+                                        <DeliveryReceiptTracker receipts={deliveryReceipts} onOpenManager={() => openModal('dr_manager')} />
+                                    </div>
+                                    <AllInventoryWidget
+                                        inventory={inventory}
+                                        onEdit={(item) => openModal('item', item)}
+                                        onDelete={handleDeleteItem}
+                                        onAdjustStock={(item) => openModal('stock', item)}
+                                        isLoading={isLoading}
+                                        searchTerm={searchTerm}
+                                        setSearchTerm={setSearchTerm}
+                                        isAdminMode={isAdminMode}
+                                        settings={settings}
+                                    />
+                                </div>
+                                <LogsWidget isLoading={isLoading} appId={appId} />
                             </main>
                         </div>
                     </div>
@@ -2569,6 +3038,16 @@
                         />
                     )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
+
+                    {modal === 'reports' && (
+                        <ReportsModal
+                            inventory={inventory}
+                            deliveryReceipts={deliveryReceipts}
+                            settings={settings}
+                            onClose={closeModal}
+                            setNotification={setNotification}
+                        />
+                    )}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
