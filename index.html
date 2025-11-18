@@ -1782,6 +1782,262 @@
                 </Modal>
             );
         };
+
+        const ReportsModal = ({ inventory, deliveryReceipts, settings, onClose, setNotification }) => {
+            const reorderLevel = Number(settings?.reorderLevel || 0);
+
+            const summary = useMemo(() => {
+                const totalItems = inventory.length;
+                const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+                const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
+                const lowStockCount = inventory.filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel)).length;
+                const averageUnitValue = totalItems > 0 ? totalValue / totalItems : 0;
+                return { totalItems, totalQuantity, totalValue, lowStockCount, averageUnitValue };
+            }, [inventory, reorderLevel]);
+
+            const lowStockItems = useMemo(() => inventory
+                .filter(item => Number(item.qty || 0) <= Number(item.reorderLevel ?? reorderLevel))
+                .sort((a, b) => Number(a.qty || 0) - Number(b.qty || 0))
+                .slice(0, 6), [inventory, reorderLevel]);
+
+            const brandBreakdown = useMemo(() => {
+                const map = inventory.reduce((acc, item) => {
+                    const brand = item.brand || 'Unbranded';
+                    if (!acc[brand]) {
+                        acc[brand] = { qty: 0, value: 0 };
+                    }
+                    acc[brand].qty += Number(item.qty || 0);
+                    acc[brand].value += Number(item.qty || 0) * Number(item.price || 0);
+                    return acc;
+                }, {});
+                return Object.entries(map)
+                    .map(([brand, data]) => ({ brand, ...data }))
+                    .sort((a, b) => b.qty - a.qty)
+                    .slice(0, 6);
+            }, [inventory]);
+
+            const topValuedItems = useMemo(() => [...inventory]
+                .map(item => ({ ...item, value: Number(item.qty || 0) * Number(item.price || 0) }))
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 6), [inventory]);
+
+            const recentReceipts = useMemo(() => (deliveryReceipts || [])
+                .slice(0, 6)
+                .map(receipt => ({
+                    id: receipt.id,
+                    number: receipt.drNumber || receipt.orderNumber || 'N/A',
+                    createdAt: receipt.createdAt,
+                    status: receipt.status || 'Active',
+                    count: Array.isArray(receipt.items) ? receipt.items.length : 0,
+                    name: receipt.customerName || receipt.requestedBy || 'N/A'
+                })), [deliveryReceipts]);
+
+            const toDate = (timestamp) => {
+                if (!timestamp) return '';
+                if (typeof timestamp.toDate === 'function') {
+                    return timestamp.toDate();
+                }
+                const d = new Date(timestamp);
+                return Number.isNaN(d.getTime()) ? '' : d;
+            };
+
+            const buildSummaryText = () => {
+                const lines = [
+                    'Warehouse Report Summary',
+                    `Total Unique Items: ${summary.totalItems}`,
+                    `Total Quantity: ${summary.totalQuantity}`,
+                    `Inventory Value: ${formatCurrency(summary.totalValue)}`,
+                    `Average Unit Value: ${formatCurrency(summary.averageUnitValue)}`,
+                    `Low Stock Items: ${summary.lowStockCount}`,
+                    '',
+                    'Top Valued Items:',
+                    ...topValuedItems.map(item => `- ${item.name} (${item.sku}): ${formatCurrency(item.value)}`)
+                ];
+                return lines.join('\n');
+            };
+
+            const handleCopySummary = async () => {
+                const text = buildSummaryText();
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setNotification?.({ type: 'success', message: 'Report summary copied to clipboard.' });
+                } catch (error) {
+                    console.error('Copy failed', error);
+                    setNotification?.({ type: 'error', message: 'Unable to copy summary. Please try again.' });
+                }
+            };
+
+            const handleExportCsv = () => {
+                const headers = ['SKU', 'Name', 'Brand', 'Qty', 'Unit', 'Price', 'Value', 'Reorder Level'];
+                const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+                const rows = inventory.map(item => [
+                    escape(item.sku),
+                    escape(item.name),
+                    escape(item.brand || ''),
+                    escape(item.qty),
+                    escape(item.unit || item.issuingUnit || ''),
+                    escape(item.price),
+                    escape((Number(item.qty || 0) * Number(item.price || 0)).toFixed(2)),
+                    escape(item.reorderLevel ?? reorderLevel)
+                ].join(','));
+                const csvContent = [headers.join(','), ...rows].join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `warehouse-report-${new Date().toISOString().slice(0,10)}.csv`;
+                link.click();
+                URL.revokeObjectURL(link.href);
+                setNotification?.({ type: 'success', message: 'Report exported as CSV.' });
+            };
+
+            return (
+                <Modal onClose={onClose} size="5xl">
+                    <div className="space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-800">Reports & Insights</h2>
+                                <p className="text-gray-500">Track overall performance, value, and risk areas.</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={handleCopySummary} className="px-4 py-2 bg-white border rounded-full text-sm shadow-sm hover:bg-gray-50">Copy Summary</button>
+                                <button onClick={handleExportCsv} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-sm shadow-sm hover:bg-indigo-700">Export CSV</button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Total Items</p>
+                                <p className="text-2xl font-bold">{summary.totalItems}</p>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Total Quantity</p>
+                                <p className="text-2xl font-bold">{summary.totalQuantity.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <p className="text-xs uppercase text-gray-500">Inventory Value</p>
+                                <p className="text-2xl font-bold">{formatCurrency(summary.totalValue)}</p>
+                            </div>
+                            <div className={`border rounded-xl p-4 shadow-sm ${summary.lowStockCount > 0 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                                <p className="text-xs uppercase text-gray-500">Low Stock Items</p>
+                                <p className="text-2xl font-bold">{summary.lowStockCount}</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-lg font-bold text-gray-800">Low Stock Watchlist</h3>
+                                    <span className="text-xs text-gray-500">Threshold: {reorderLevel}</span>
+                                </div>
+                                <div className="h-64 overflow-y-auto">
+                                    {lowStockItems.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Item</th>
+                                                    <th className="p-2 text-left">Qty</th>
+                                                    <th className="p-2 text-left">Reorder</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {lowStockItems.map(item => (
+                                                    <tr key={item.id} className="border-b">
+                                                        <td className="p-2">{item.name}</td>
+                                                        <td className="p-2 text-orange-600 font-semibold">{item.qty}</td>
+                                                        <td className="p-2 text-gray-600">{item.reorderLevel ?? reorderLevel}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">All items are above the reorder threshold.</p>}
+                                </div>
+                            </div>
+
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Stock by Brand</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {brandBreakdown.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Brand</th>
+                                                    <th className="p-2 text-left">Qty</th>
+                                                    <th className="p-2 text-left">Value</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {brandBreakdown.map(row => (
+                                                    <tr key={row.brand} className="border-b">
+                                                        <td className="p-2">{row.brand}</td>
+                                                        <td className="p-2">{row.qty.toLocaleString()}</td>
+                                                        <td className="p-2">{formatCurrency(row.value)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">No brand data available.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Top Valued Items</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {topValuedItems.length > 0 ? (
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-gray-50">
+                                                <tr>
+                                                    <th className="p-2 text-left">Item</th>
+                                                    <th className="p-2 text-left">Value</th>
+                                                    <th className="p-2 text-left">Stock</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {topValuedItems.map(item => (
+                                                    <tr key={item.id} className="border-b">
+                                                        <td className="p-2">{item.name}</td>
+                                                        <td className="p-2">{formatCurrency(item.value)}</td>
+                                                        <td className="p-2">{item.qty}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : <p className="text-gray-500 text-sm">No inventory available.</p>}
+                                </div>
+                            </div>
+
+                            <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Recent Receipts & Orders</h3>
+                                <div className="h-64 overflow-y-auto">
+                                    {recentReceipts.length > 0 ? (
+                                        <ul className="space-y-2 text-sm">
+                                            {recentReceipts.map(receipt => (
+                                                <li key={receipt.id} className="flex justify-between items-start border-b pb-2">
+                                                    <div>
+                                                        <p className="font-semibold text-gray-800">{receipt.number}</p>
+                                                        <p className="text-gray-500 text-xs">{receipt.name}</p>
+                                                    </div>
+                                                    <div className="text-right text-xs text-gray-500">
+                                                        <p>{toDate(receipt.createdAt)?.toLocaleDateString?.() || 'N/A'}</p>
+                                                        <p className="font-semibold text-gray-700">{receipt.count} items</p>
+                                                        <p className="uppercase text-[11px] text-indigo-600">{receipt.status}</p>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : <p className="text-gray-500 text-sm">No recent documents.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
         
         // Modal for editing the printable document template
         const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
@@ -2497,6 +2753,7 @@
                                      )}
                                      
                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('reports')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📊 Reports</button>
                                     <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
@@ -2569,6 +2826,16 @@
                         />
                     )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
+
+                    {modal === 'reports' && (
+                        <ReportsModal
+                            inventory={inventory}
+                            deliveryReceipts={deliveryReceipts}
+                            settings={settings}
+                            onClose={closeModal}
+                            setNotification={setNotification}
+                        />
+                    )}
 
                     {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
