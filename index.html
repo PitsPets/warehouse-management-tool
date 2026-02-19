@@ -2928,7 +2928,7 @@
                     let finalDrNumber;
                     if (receiptData.id && isTools) {
                         // Update existing Tools receipt
-                        const { id, ...dataToUpdate } = receiptData;
+                        const { id, createdAt, siteName, drNumber, ...dataToUpdate } = receiptData;
                         const receiptRef = doc(db, `artifacts/${appId}/public/data/toolsReceipts`, id);
                         await updateDoc(receiptRef, {
                             ...dataToUpdate,
