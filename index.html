@@ -880,14 +880,14 @@
         // Form for managing project sites
         const SiteManagementForm = ({ sites, onSave, onClose, setNotification, onFinishSite, onReactivateSite }) => {
             const [editingSite, setEditingSite] = useState(null);
-            const [formData, setFormData] = useState({ name: '', drPrefix: '' });
+            const [formData, setFormData] = useState({ name: '', drPrefix: '', toolsDrPrefix: '' });
             const [isSaving, setIsSaving] = useState(false);
 
             useEffect(() => {
                 if (editingSite) {
                     setFormData(editingSite);
                 } else {
-                    setFormData({ name: '', drPrefix: '' });
+                    setFormData({ name: '', drPrefix: '', toolsDrPrefix: '' });
                 }
             }, [editingSite]);
 
@@ -898,8 +898,8 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!formData.name || !formData.drPrefix) {
-                    setNotification({ type: 'error', message: "Site Name and DR Prefix are required." });
+                if (!formData.name || !formData.drPrefix || !formData.toolsDrPrefix) {
+                    setNotification({ type: 'error', message: "Site Name, DR Prefix, and Tools Prefix are required." });
                     return;
                 }
                 setIsSaving(true);
@@ -914,14 +914,18 @@
                         <h2 className="text-2xl font-bold text-gray-800">Manage Sites</h2>
                         <form onSubmit={handleSubmit} className="p-4 border rounded-lg bg-gray-50 space-y-4">
                             <h3 className="font-bold">{editingSite ? 'Edit Site' : 'Add New Site'}</h3>
-                            <div className="flex gap-2 items-end">
-                                <div className="flex-grow">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                                <div className="sm:col-span-1">
                                     <label className="text-sm font-medium">Site Name</label>
-                                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                    <input type="text" placeholder="SITE NAME" name="name" value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                                 </div>
-                                <div className="flex-grow">
+                                <div className="">
                                     <label className="text-sm font-medium">DR Prefix</label>
-                                    <input type="text" name="drPrefix" value={formData.drPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                    <input type="text" placeholder="DR" name="drPrefix" value={formData.drPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                </div>
+                                <div className="">
+                                    <label className="text-sm font-medium">Tools Prefix</label>
+                                    <input type="text" placeholder="T-DR" name="toolsDrPrefix" value={formData.toolsDrPrefix} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                                 </div>
                             </div>
                             <div className="flex justify-end gap-2">
@@ -936,10 +940,15 @@
                             <ul className="space-y-2 h-48 overflow-y-auto pr-2">
                                 {sites.length > 0 ? sites.map(s => (
                                     <li key={s.id} className={`p-3 rounded-lg flex justify-between items-center ${s.status === 'Finished' ? 'bg-gray-200' : 'bg-gray-100'}`}>
-                                        <div>
-                                            <span className={`font-medium ${s.status === 'Finished' ? 'text-gray-500' : ''}`}>{s.name}</span>
-                                            <span className={`ml-4 font-mono ${s.status === 'Finished' ? 'text-gray-400' : 'text-gray-500'}`}>{s.drPrefix} / Last DR: {s.lastDrNumber || 0}</span>
-                                            {s.status === 'Finished' && <span className="ml-4 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">FINISHED</span>}
+                                        <div className="flex-grow">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-medium ${s.status === 'Finished' ? 'text-gray-500' : ''}`}>{s.name}</span>
+                                                {s.status === 'Finished' && <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">FINISHED</span>}
+                                            </div>
+                                            <div className="flex gap-4 mt-1">
+                                                <span className="text-[11px] font-mono text-gray-500 bg-white px-2 py-0.5 rounded border">Material: {s.drPrefix}-{String(s.lastDrNumber || 0).padStart(5, '0')}</span>
+                                                <span className="text-[11px] font-mono text-gray-500 bg-white px-2 py-0.5 rounded border">Tools: {s.toolsDrPrefix || 'N/A'}-{String(s.lastToolsDrNumber || 0).padStart(5, '0')}</span>
+                                            </div>
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <button onClick={() => setEditingSite(s)} disabled={s.status === 'Finished'} className="text-sm text-indigo-600 hover:underline disabled:text-gray-400 disabled:no-underline">Edit</button>
@@ -1346,7 +1355,10 @@
                 if (!siteId) { alert('Please select a site'); return; }
                 const cleanedItems = items.filter(item => item.name.trim() && item.dispatchQty > 0);
                 if (cleanedItems.length === 0) { alert('Add at least one item'); return; }
-                const receiptData = { siteId, customerName, address, poNumber, remarks, items: cleanedItems, showPrice, origin: 'tools' };
+                const receiptData = {
+                    ...(initialData?.id ? { id: initialData.id, drNumber: initialData.drNumber } : {}),
+                    siteId, customerName, address, poNumber, remarks, items: cleanedItems, showPrice, origin: 'tools'
+                };
                 onDraftChange(receiptData);
                 onFinalize(receiptData, 'tools');
             };
@@ -2823,7 +2835,12 @@
                         setNotification({ type: 'success', message: `Site "${siteData.name}" updated.` });
                         await logAction('Site Updated', `Updated site: ${siteData.name}`);
                     } else { // Adding
-                        await addDoc(collection(db, path), { ...siteData, lastDrNumber: 0, status: 'Active' });
+                        await addDoc(collection(db, path), {
+                            ...siteData,
+                            lastDrNumber: 0,
+                            lastToolsDrNumber: 0,
+                            status: 'Active'
+                        });
                         setNotification({ type: 'success', message: `Site "${siteData.name}" added.` });
                         await logAction('Site Added', `New site created: ${siteData.name}`);
                     }
@@ -2909,48 +2926,72 @@
 
                 try {
                     let finalDrNumber;
-                    await runTransaction(db, async (transaction) => {
-                        const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
-                        const siteDoc = await transaction.get(siteRef);
-                        if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
+                    if (receiptData.id && isTools) {
+                        // Update existing Tools receipt
+                        const { id, ...dataToUpdate } = receiptData;
+                        const receiptRef = doc(db, `artifacts/${appId}/public/data/toolsReceipts`, id);
+                        await updateDoc(receiptRef, {
+                            ...dataToUpdate,
+                            updatedAt: serverTimestamp()
+                        });
+                        finalDrNumber = receiptData.drNumber;
+                    } else {
+                        // Create new receipt logic
+                        await runTransaction(db, async (transaction) => {
+                            const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, receiptData.siteId);
+                            const siteDoc = await transaction.get(siteRef);
+                            if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        // Only check inventory if not a tools receipt or if it's explicitly linked to inventory
-                        const inventoryItems = (receiptData.items || []).filter(item => !isTools && (!item.isManual || item.inventoryId));
-                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.inventoryId || item.id));
-                        const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+                            // Only check inventory if not a tools receipt or if it's explicitly linked to inventory
+                            const inventoryItems = (receiptData.items || []).filter(item => !isTools && (!item.isManual || item.inventoryId));
+                            const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.inventoryId || item.id));
+                            const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        for (let i = 0; i < itemDocs.length; i++) {
-                            const invItemDoc = itemDocs[i];
-                            const requestedItem = inventoryItems[i];
-                            if (!invItemDoc.exists()) throw new Error(`Inventory item "${requestedItem.name}" no longer exists.`);
-                            if (invItemDoc.data().qty < requestedItem.dispatchQty) {
-                                throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                            for (let i = 0; i < itemDocs.length; i++) {
+                                const invItemDoc = itemDocs[i];
+                                const requestedItem = inventoryItems[i];
+                                if (!invItemDoc.exists()) throw new Error(`Inventory item "${requestedItem.name}" no longer exists.`);
+                                if (invItemDoc.data().qty < requestedItem.dispatchQty) {
+                                    throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
+                                }
                             }
-                        }
 
-                        const newDrNumber = siteDoc.data().lastDrNumber + 1;
-                        const drNumberString = `${siteDoc.data().drPrefix}-${String(newDrNumber).padStart(5, '0')}`;
-                        finalDrNumber = drNumberString;
+                            const newDrNumber = isTools
+                                ? (siteDoc.data().lastToolsDrNumber || 0) + 1
+                                : (siteDoc.data().lastDrNumber || 0) + 1;
 
-                        for (let i = 0; i < inventoryItems.length; i++) {
-                            transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
-                        }
+                            const prefix = isTools
+                                ? (siteDoc.data().toolsDrPrefix || 'T-DR')
+                                : (siteDoc.data().drPrefix || 'DR');
 
-                        const docPayload = {
-                            ...receiptData,
-                            drNumber: drNumberString,
-                            siteName: siteDoc.data().name,
-                            createdAt: serverTimestamp(),
-                            status: 'Active',
-                            type: isTools ? 'tools' : 'standard'
-                        };
+                            const drNumberString = `${prefix}-${String(newDrNumber).padStart(5, '0')}`;
+                            finalDrNumber = drNumberString;
 
-                        transaction.set(doc(receiptsCollectionRef), docPayload);
-                        transaction.update(siteRef, { lastDrNumber: increment(1) });
-                    });
+                            for (let i = 0; i < inventoryItems.length; i++) {
+                                transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
+                            }
+
+                            const docPayload = {
+                                ...receiptData,
+                                drNumber: drNumberString,
+                                siteName: siteDoc.data().name,
+                                createdAt: serverTimestamp(),
+                                status: 'Active',
+                                type: isTools ? 'tools' : 'standard'
+                            };
+
+                            transaction.set(doc(receiptsCollectionRef), docPayload);
+
+                            if (isTools) {
+                                transaction.update(siteRef, { lastToolsDrNumber: increment(1) });
+                            } else {
+                                transaction.update(siteRef, { lastDrNumber: increment(1) });
+                            }
+                        });
+                    }
 
                     setNotification({ type: 'success', message: `${isTools ? 'Tools Receipt' : 'Receipt'} ${finalDrNumber} saved successfully!` });
-                    await logAction(isTools ? 'Tools Receipt Created' : 'Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
+                    await logAction(isTools ? (receiptData.id ? 'Tools Receipt Updated' : 'Tools Receipt Created') : 'Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
                     return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
@@ -2961,9 +3002,18 @@
 
             const handlePreviewAndFinalize = (receiptData, drType = 'delivery') => {
                 const { origin, ...payload } = receiptData || {};
+                const isTools = drType === 'tools' || origin === 'tools' || payload.origin === 'tools';
                 const selectedSite = sites.find(s => s.id === payload.siteId);
-                const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
-                const drNumberString = `${selectedSite?.drPrefix || 'DR'}-${String(nextDrNumber).padStart(5, '0')}`;
+
+                const nextDrNumber = isTools
+                    ? (selectedSite?.lastToolsDrNumber || 0) + 1
+                    : (selectedSite?.lastDrNumber || 0) + 1;
+
+                const prefix = isTools
+                    ? (selectedSite?.toolsDrPrefix || 'T-DR')
+                    : (selectedSite?.drPrefix || 'DR');
+
+                const drNumberString = `${prefix}-${String(nextDrNumber).padStart(5, '0')}`;
 
                 const dataForPreview = {
                     ...payload,
@@ -2984,7 +3034,9 @@
                 }
                 try {
                     await runTransaction(db, async (transaction) => {
-                        const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
+                        const isTools = receipt.origin === 'tools' || receipt.type === 'tools';
+                        const collectionName = isTools ? 'toolsReceipts' : 'deliveryReceipts';
+                        const receiptRef = doc(db, `artifacts/${appId}/public/data/${collectionName}`, receipt.id);
                         const stockItems = receipt.items.filter(item => !item.isManual || item.inventoryId);
                         const itemRefs = stockItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.inventoryId || item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
@@ -3006,7 +3058,9 @@
 
             const handleFinishReceipt = async (receipt) => {
                 if (!receipt || receipt.status !== 'Active') return;
-                const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
+                const isTools = receipt.origin === 'tools' || receipt.type === 'tools';
+                const collectionName = isTools ? 'toolsReceipts' : 'deliveryReceipts';
+                const receiptRef = doc(db, `artifacts/${appId}/public/data/${collectionName}`, receipt.id);
                 try {
                     await updateDoc(receiptRef, { status: 'Finished' });
                     setNotification({ type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.` });
@@ -3207,6 +3261,29 @@
                 }
             ] : [];
 
+            const toolsManagerActions = isAdminMode ? [
+                {
+                    label: "Edit",
+                    handler: (r) => {
+                        setToolsReceiptDraft(null); // Clear draft
+                        openModal('tools_receipt', r);
+                    },
+                    className: "text-indigo-600 hover:underline text-sm"
+                },
+                {
+                    label: "Mark as Finished",
+                    handler: handleFinishReceipt,
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-blue-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                },
+                {
+                    label: "Void",
+                    handler: (r) => setReceiptToVoid(r),
+                    disabled: (r) => r.status !== 'Active',
+                    className: "text-red-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"
+                }
+            ] : [];
+
             return (
                 <>
                     <div className="min-h-screen font-sans text-gray-800">
@@ -3311,7 +3388,7 @@
                             unitOptions={settings.unitOptions}
                             onFinalize={handlePreviewAndFinalize}
                             onClose={closeModal}
-                            initialData={toolsReceiptDraft}
+                            initialData={currentItem || toolsReceiptDraft}
                             onDraftChange={setToolsReceiptDraft}
                         />
                     )}
@@ -3321,7 +3398,7 @@
                             onClose={closeModal}
                             openDetailView={(r) => openModal('dr_detail', r)}
                             title="Tools Receipt History"
-                            actions={[]}
+                            actions={toolsManagerActions}
                             type="dr_manager"
                             template={toolsTemplate}
                             sites={sites}
