@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warehouse Management Tool</title>
+    <title>DLV Warehouse Management Tool</title>
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2897/2897785.png" type="image/png">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -985,9 +986,10 @@
             }), [defaultUnit]);
 
             const normalizeManualItem = useCallback((item) => ({
+                ...item,
                 id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 inventoryId: item.inventoryId || null
-            }), [defaultUnit]);
+            }), []);
 
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
             const [customerName, setCustomerName] = useState(initialData?.customerName || '');
@@ -2791,8 +2793,8 @@
                     err => console.error("Settings snapshot error:", err)
                 );
 
-                const unsubDrTemplate = onSnapshot(doc(db, `${basePath}/settings/drTemplate`), (d) => d.exists() && setDrTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("DR Template snapshot error:", err));
-                const unsubToolsTemplate = onSnapshot(doc(db, `${basePath}/settings/toolsTemplate`), (d) => d.exists() && setToolsTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("Tools Template snapshot error:", err));
+                const unsubDrTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => d.exists() && setDrTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("DR Template snapshot error:", err));
+                const unsubToolsTemplate = onSnapshot(doc(db, `${basePath}/settings/tools_template`), (d) => d.exists() && setToolsTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("Tools Template snapshot error:", err));
 
                 setIsLoading(false);
 
@@ -3019,13 +3021,13 @@
                 const path = `artifacts/${appId}/public/data/inventory`;
                 try {
                     // Normalize inputs for comparison
-                    const itemNameLower = item.name.trim().toLowerCase();
+                    const itemNameLower = (item.name || '').trim().toLowerCase();
                     const itemBrandLower = (item.brand || '').trim().toLowerCase();
-                    const itemSkuLower = item.sku.trim().toLowerCase();
+                    const itemSkuLower = (item.sku || '').trim().toLowerCase();
 
                     if (item.id) { // Editing existing item
                         const conflictingSku = inventory.find(invItem =>
-                            invItem.id !== item.id && invItem.sku.trim().toLowerCase() === itemSkuLower
+                            invItem.id !== item.id && (invItem.sku || '').trim().toLowerCase() === itemSkuLower
                         );
                         if (conflictingSku) {
                             setNotification({ type: 'error', message: `SKU "${item.sku}" is already used by another item.` });
@@ -3034,7 +3036,7 @@
 
                         const conflictingNameAndBrand = inventory.find(invItem =>
                             invItem.id !== item.id &&
-                            invItem.name.trim().toLowerCase() === itemNameLower &&
+                            (invItem.name || '').trim().toLowerCase() === itemNameLower &&
                             (invItem.brand || '').trim().toLowerCase() === itemBrandLower
                         );
                         if (conflictingNameAndBrand) {
@@ -3117,6 +3119,15 @@
                     setNotification({ type: 'success', message: 'DR Template saved!' });
                     closeModal();
                 } catch (e) { console.error("DR Template save error:", e); setNotification({ type: 'error', message: `Failed to save template: ${e.message}` }); }
+            };
+
+            const handleSaveToolsTemplate = async (newTemplate) => {
+                try {
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'tools_template'), newTemplate);
+                    await logAction('Tools Template Updated', 'Tools receipt template was modified.');
+                    setNotification({ type: 'success', message: 'Tools template saved!' });
+                    closeModal();
+                } catch (e) { console.error("Tools Template save error:", e); setNotification({ type: 'error', message: `Failed to save tools template: ${e.message}` }); }
             };
 
             // --- Restock Cart ---
@@ -3228,7 +3239,10 @@
                                         <>
                                             <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
                                             <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
-                                            <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
+                                            <div className="flex bg-gray-100 p-1 rounded-full border">
+                                                <button onClick={() => openModal('dr_template_editor')} className="text-[10px] text-gray-700 font-bold px-3 py-1 hover:bg-white rounded-full transition-all">DR Template</button>
+                                                <button onClick={() => openModal('tools_template_editor')} className="text-[10px] text-gray-700 font-bold px-3 py-1 hover:bg-white rounded-full transition-all">Tools Template</button>
+                                            </div>
                                             <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
                                             <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
                                             <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
@@ -3325,6 +3339,7 @@
                     )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
+                    {modal === 'tools_template_editor' && <TemplateEditorModal template={toolsTemplate} onSave={handleSaveToolsTemplate} onClose={closeModal} setNotification={setNotification} />}
                     {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification} />}
 
                     {modal === 'dr_manager' && (
@@ -3339,7 +3354,7 @@
                             sites={sites}
                         />
                     )}
-                    {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
+                    {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={currentItem?.type === 'tools' || currentItem?.origin === 'tools' ? toolsTemplate : drTemplate} />}
 
                     {modal === 'reports' && (
                         <ReportsModal
@@ -3357,7 +3372,7 @@
                     {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
                         <ReceiptDetailView
                             receipt={pendingReceipt}
-                            template={drTemplate}
+                            template={pendingReceiptOrigin === 'tools' ? toolsTemplate : drTemplate}
                             isPreview={true}
                             onConfirm={() => handleSaveReceipt(pendingReceipt)}
                             onCancel={returnToReceiptComposer}
