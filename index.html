@@ -1,14 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warehouse Management</title>
+    <title>Warehouse Management Tool</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        },
+                        secondary: {
+                            50: '#f8fafc',
+                            100: '#f1f5f9',
+                            200: '#e2e8f0',
+                            300: '#cbd5e1',
+                            400: '#94a3b8',
+                            500: '#64748b',
+                            600: '#475569',
+                            700: '#334155',
+                            800: '#1e293b',
+                            900: '#0f172a',
+                        },
+                        accent: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            200: '#fed7aa',
+                            300: '#fdba74',
+                            400: '#fb923c',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                            800: '#9a3412',
+                            900: '#7c2d12',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'premium': '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+                        'premium-hover': '0 20px 30px -10px rgba(0, 0, 0, 0.1), 0 10px 15px -8px rgba(0, 0, 0, 0.05)',
+                    }
+                }
+            }
+        }
+    </script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
+
     <!-- Firebase Libraries -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -24,6 +87,7 @@
     </script>
 
 </head>
+
 <body class="bg-gray-50">
     <div id="root"></div>
     <!-- This div is used specifically for printing content -->
@@ -179,29 +243,29 @@
                 </div>
             );
         };
-        
+
         // A modal for showing notifications (success, error, info)
         const NotificationModal = ({ message, type, onClose }) => {
-             const colors = {
-                 success: 'bg-green-100 border-green-500 text-green-700',
-                 error: 'bg-red-100 border-red-500 text-red-700',
-                 info: 'bg-blue-100 border-blue-500 text-blue-700',
-             };
-             const btnColors = {
-                 success: 'bg-green-600 hover:bg-green-700',
-                 error: 'bg-red-600 hover:bg-red-700',
-                 info: 'bg-blue-600 hover:bg-blue-700',
-             }
-             return (
-                 <Modal onClose={onClose} size="sm" zIndexClass="z-[200]">
-                     <div className="text-center">
-                         <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
-                             <p className="font-medium">{message}</p>
-                         </div>
-                         <button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
-                     </div>
-                 </Modal>
-             );
+            const colors = {
+                success: 'bg-green-100 border-green-500 text-green-700',
+                error: 'bg-red-100 border-red-500 text-red-700',
+                info: 'bg-blue-100 border-blue-500 text-blue-700',
+            };
+            const btnColors = {
+                success: 'bg-green-600 hover:bg-green-700',
+                error: 'bg-red-600 hover:bg-red-700',
+                info: 'bg-blue-600 hover:bg-blue-700',
+            }
+            return (
+                <Modal onClose={onClose} size="sm" zIndexClass="z-[200]">
+                    <div className="text-center">
+                        <div className={`p-4 border-l-4 ${colors[type] || colors.info} rounded-lg`}>
+                            <p className="font-medium">{message}</p>
+                        </div>
+                        <button onClick={onClose} className={`mt-4 w-full px-6 py-2 text-white ${btnColors[type] || btnColors.info} rounded-full`}>OK</button>
+                    </div>
+                </Modal>
+            );
         };
 
         // A modal for confirming actions (e.g., deletion)
@@ -224,7 +288,7 @@
                 </div>
             );
         };
-        
+
         // --- Widget & Form Components ---
 
         // Dashboard widget showing key inventory stats
@@ -233,20 +297,28 @@
             const totalQuantity = inventory.reduce((sum, item) => sum + Number(item.qty || 0), 0);
             const totalValue = inventory.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.price || 0)), 0);
             const stats = [
-                { name: 'Total Unique Items', value: totalItems, icon: '📦' }, 
-                { name: 'Total Quantity', value: totalQuantity, icon: '🔢' }, 
-                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰' }
+                { name: 'Total Unique Items', value: totalItems, icon: '📦', color: 'from-primary-400 to-primary-600' },
+                { name: 'Total Quantity', value: totalQuantity, icon: '🔢', color: 'from-accent-400 to-accent-600' },
+                { name: 'Total Inventory Value', value: formatCurrency(totalValue), icon: '💰', color: 'from-green-400 to-green-600' }
             ];
             return (
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">At a Glance</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-premium p-8 border border-white/20 animate-fade-in">
+                    <h3 className="text-xl font-display font-bold text-secondary-900 mb-6 flex items-center gap-2">
+                        <span className="w-2 h-8 bg-primary-500 rounded-full"></span>
+                        Inventory Overview
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {stats.map(stat => (
-                            <div key={stat.name} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                                <div className="text-3xl">{stat.icon}</div>
-                                <div>
-                                    <p className="text-sm text-gray-500">{stat.name}</p>
-                                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+                            <div key={stat.name} className="relative group overflow-hidden bg-white rounded-2xl p-6 border border-secondary-100 transition-all duration-300 hover:shadow-premium-hover hover:-translate-y-1">
+                                <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${stat.color} opacity-5 -mr-8 -mt-8 rounded-full transition-transform group-hover:scale-150 duration-500`}></div>
+                                <div className="flex items-center gap-5 relative z-10">
+                                    <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-2xl shadow-lg`}>
+                                        {stat.icon}
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wider text-secondary-500">{stat.name}</p>
+                                        <p className="text-2xl font-display font-bold text-secondary-900 mt-1">{stat.value}</p>
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -286,7 +358,7 @@
                                     <p className="font-medium text-gray-700">{item.name}</p>
                                     <p className="text-xs text-gray-500">Stock: <span className="font-bold text-red-500">{item.qty}</span> / Reorder: {Number(item.reorderLevel || settings.reorderLevel)}</p>
                                 </div>
-                                <button onClick={() => { onRestock(item); setNotification({type: 'info', message: `${item.name} added to restock list.`})}} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600">
+                                <button onClick={() => { onRestock(item); setNotification({ type: 'info', message: `${item.name} added to restock list.` }) }} className="bg-blue-500 text-white px-3 py-1 text-xs rounded-full hover:bg-blue-600">
                                     Restock
                                 </button>
                             </li>
@@ -298,9 +370,9 @@
 
         // Main table displaying all inventory items
         const AllInventoryWidget = ({ inventory, onEdit, onDelete, onAdjustStock, isLoading, searchTerm, setSearchTerm, isAdminMode, settings }) => {
-            const filteredInventory = useMemo(() => inventory.filter(item => 
-                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
+            const filteredInventory = useMemo(() => inventory.filter(item =>
+                (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (item.brand?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                 (item.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase())
             ), [inventory, searchTerm]);
 
@@ -309,7 +381,7 @@
                     <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Global Inventory</h3>
                         <div className="relative w-full sm:w-64">
-                            <input type="text" placeholder="Search by SKU, name..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            <input type="text" placeholder="Search by SKU, name, or brand..." className="w-full pl-9 pr-4 py-1.5 border border-gray-200 rounded-full text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
                     </div>
@@ -347,14 +419,14 @@
                                                                 <button onClick={() => onAdjustStock(item)} className="p-2 text-gray-400 hover:text-green-600 rounded-full hover:bg-gray-100" title="Adjust Stock">±</button>
                                                                 <button onClick={() => onEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-gray-100" title="Edit Item">✏️</button>
                                                                 <button onClick={() => onDelete(item.id, item.name)} className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-gray-100" title="Delete Item">🗑️</button>
-                                                        </div>
-                                                    </td>
-                                                )}
-                                            </tr>
-                                        )
-                                    }) : (
-                                        <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
-                                    )}
+                                                            </div>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            )
+                                        }) : (
+                                            <tr><td colSpan={isAdminMode ? "5" : "4"} className="text-center p-8 text-gray-500">{searchTerm ? `No items found matching "${searchTerm}".` : `Your inventory is empty. Add an item to get started!`}</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -363,14 +435,14 @@
                 </div>
             );
         };
-        
+
         // Widget to display recent activity logs
         const LogsWidget = ({ isLoading, appId }) => {
             const [logs, setLogs] = useState([]);
             useEffect(() => {
                 if (!db || !appId) return;
                 const q = query(collection(db, `artifacts/${appId}/public/data/logs`), orderBy('timestamp', 'desc'));
-                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+                const unsub = onSnapshot(q, snapshot => setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))),
                     (error) => console.error("Error fetching logs:", error));
                 return () => unsub();
             }, [appId]);
@@ -472,7 +544,7 @@
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!item.name || !item.sku) {
-                    setNotification({type: 'error', message: 'SKU and Name are required.'});
+                    setNotification({ type: 'error', message: 'SKU and Name are required.' });
                     return;
                 }
                 setIsSaving(true);
@@ -533,18 +605,18 @@
                         </div>
                         <p className="text-xs text-gray-500 mt-1">Default unit is PC/s. Use settings to manage the dropdown options or enter a custom value.</p>
                     </div>
-                    { !currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
+                    {!currentItem && <div><label className="block text-sm font-medium">Initial Quantity</label><input type="number" name="qty" value={item.qty} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg" /></div>}
                     <div className="flex justify-end gap-4 pt-4">
                         <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
                         <button type="submit" disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300 flex items-center gap-2">
-                           {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
-                           {isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
+                            {isSaving && <div className="w-4 h-4 border-2 border-white border-b-transparent rounded-full animate-spin"></div>}
+                            {isSaving ? 'Saving...' : (currentItem ? 'Save Changes' : 'Add Item')}
                         </button>
                     </div>
                 </form>
             );
         };
-        
+
         // Modal for entering admin password
         const AdminLoginModal = ({ onLogin, onClose }) => {
             const [password, setPassword] = useState('');
@@ -562,7 +634,7 @@
                 </Modal>
             );
         };
-        
+
         // Form for adjusting the stock quantity of an item
         const StockAdjustmentForm = ({ item, onAdjust, onClose, setNotification }) => {
             const [adjustment, setAdjustment] = useState(0);
@@ -570,8 +642,8 @@
 
             const handleSave = async () => {
                 if (adjustment === 0) {
-                     setNotification({type: 'error', message: "Adjustment value cannot be zero."});
-                     return;
+                    setNotification({ type: 'error', message: "Adjustment value cannot be zero." });
+                    return;
                 }
                 setIsSaving(true);
                 await onAdjust(item, adjustment);
@@ -587,13 +659,13 @@
                             <p>Current Quantity: <span className="font-bold text-xl">{item.qty}</span></p>
                         </div>
                         <div>
-                           <label className="block text-sm font-medium">Adjustment (+/-)</label>
-                           <input 
-                               type="number" 
-                               value={adjustment} 
-                               onChange={(e) => setAdjustment(Number(e.target.value))} 
-                               className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
-                               autoFocus
+                            <label className="block text-sm font-medium">Adjustment (+/-)</label>
+                            <input
+                                type="number"
+                                value={adjustment}
+                                onChange={(e) => setAdjustment(Number(e.target.value))}
+                                className="w-full px-3 py-2 border rounded-lg text-center text-2xl"
+                                autoFocus
                             />
                             <p className="text-sm text-gray-500 mt-2">New Quantity will be: <span className="font-bold">{item.qty + adjustment}</span></p>
                         </div>
@@ -608,7 +680,7 @@
                 </Modal>
             );
         };
-        
+
         // Form for changing application settings (admin pass, reorder level)
         const SettingsForm = ({ settings, onSave, onClose }) => {
             const [localSettings, setLocalSettings] = useState(() => ({
@@ -890,12 +962,13 @@
 
         const ManualReceiptModal = ({
             sites,
+            inventory = [],
             unitOptions = [],
             onFinalize,
             onClose,
             setNotification,
             initialData = null,
-            onDraftChange = () => {}
+            onDraftChange = () => { }
         }) => {
             const normalizedUnits = useMemo(() => ensurePreferredUnitList(unitOptions), [unitOptions]);
 
@@ -907,16 +980,13 @@
                 dispatchQty: 1,
                 unit: defaultUnit,
                 price: 0,
-                isManual: true
+                isManual: true,
+                inventoryId: null
             }), [defaultUnit]);
 
             const normalizeManualItem = useCallback((item) => ({
                 id: item.id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                name: (item.name || '').toUpperCase(),
-                dispatchQty: Math.max(0, Number(item.dispatchQty || item.requestedQty || 0)),
-                unit: normalizeUnitValue(item.unit || item.issuingUnit || defaultUnit) || defaultUnit,
-                price: Math.max(0, Number(item.price || 0)),
-                isManual: true
+                inventoryId: item.inventoryId || null
             }), [defaultUnit]);
 
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
@@ -931,6 +1001,9 @@
                 }
                 return [buildRow()];
             });
+            const [focusedRowId, setFocusedRowId] = useState(null);
+            const [suggestionSearch, setSuggestionSearch] = useState({});
+            const suggestionTimeoutRef = useRef(null);
 
             useEffect(() => {
                 if (initialData) {
@@ -952,6 +1025,15 @@
                 }
             }, [initialData, buildRow, normalizeManualItem]);
 
+            const getSuggestions = useCallback((rowId) => {
+                const term = (suggestionSearch[rowId] || '').trim().toLowerCase();
+                if (term.length < 2) return [];
+                return inventory.filter(inv =>
+                    (inv.name || '').toLowerCase().includes(term) ||
+                    (inv.sku || '').toLowerCase().includes(term)
+                ).slice(0, 8);
+            }, [inventory, suggestionSearch]);
+
             const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const handleItemChange = (id, field, value) => {
@@ -969,10 +1051,60 @@
                         return { ...item, unit: normalizeUnitValue(value) || defaultUnit };
                     }
                     if (field === 'name') {
-                        return { ...item, name: value.toUpperCase() };
+                        return { ...item, name: value.toUpperCase(), inventoryId: null, isManual: true };
                     }
                     return item;
                 }));
+            };
+
+            const handleDescriptionInput = (rowId, value) => {
+                const upper = value.toUpperCase();
+                setItems(prev => prev.map(item =>
+                    item.id === rowId
+                        ? { ...item, name: upper, inventoryId: null, isManual: true }
+                        : item
+                ));
+                setSuggestionSearch(prev => ({ ...prev, [rowId]: value }));
+                setFocusedRowId(rowId);
+            };
+
+            const handleSelectSuggestion = (rowId, invItem) => {
+                const unit = normalizeUnitValue(invItem.unit || invItem.issuingUnit || defaultUnit) || defaultUnit;
+                setItems(prev => prev.map(item =>
+                    item.id === rowId
+                        ? {
+                            ...item,
+                            name: (invItem.name || '').toUpperCase(),
+                            price: Number(invItem.price || 0),
+                            unit: unit,
+                            inventoryId: invItem.id,
+                            isManual: false
+                        }
+                        : item
+                ));
+                setSuggestionSearch(prev => ({ ...prev, [rowId]: '' }));
+                setFocusedRowId(null);
+            };
+
+            const handleUnlinkItem = (rowId) => {
+                setItems(prev => prev.map(item =>
+                    item.id === rowId
+                        ? { ...item, inventoryId: null, isManual: true }
+                        : item
+                ));
+            };
+
+            const handleDescriptionFocus = (rowId) => {
+                setFocusedRowId(rowId);
+            };
+
+            const handleDescriptionBlur = (rowId) => {
+                if (suggestionTimeoutRef.current) clearTimeout(suggestionTimeoutRef.current);
+                suggestionTimeoutRef.current = setTimeout(() => {
+                    if (focusedRowId === rowId) {
+                        setFocusedRowId(null);
+                    }
+                }, 200);
             };
 
             const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
@@ -1033,7 +1165,7 @@
                         </div>
 
                         <div className="border rounded-lg bg-white">
-                            <div className="max-h-[40vh] overflow-y-auto">
+                            <div>
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10">
                                         <tr>
@@ -1045,50 +1177,97 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {items.map(item => (
-                                            <tr key={item.id} className="border-b">
-                                                <td className="p-2 align-top">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        value={item.dispatchQty}
-                                                        onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    />
-                                                </td>
-                                                <td className="p-2 align-top">
-                                                    <select
-                                                        value={item.unit}
-                                                        onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    >
-                                                        {normalizedUnits.map(option => (
-                                                            <option key={option} value={option}>{option}</option>
-                                                        ))}
-                                                    </select>
-                                                </td>
-                                                <td className="p-2">
-                                                    <textarea
-                                                        value={item.name}
-                                                        onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded resize-none h-20 uppercase"
-                                                    ></textarea>
-                                                </td>
-                                                <td className="p-2 align-top">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={item.price}
-                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
-                                                        className="w-full px-2 py-1 border rounded"
-                                                    />
-                                                </td>
-                                                <td className="p-2 align-top text-right">
-                                                    <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {items.map(item => {
+                                            const suggestions = focusedRowId === item.id ? getSuggestions(item.id) : [];
+                                            const isLinked = !!item.inventoryId;
+                                            const linkedInvItem = isLinked ? inventory.find(inv => inv.id === item.inventoryId) : null;
+                                            return (
+                                                <tr key={item.id} className={`border-b ${isLinked ? 'bg-green-50' : ''}`}>
+                                                    <td className="p-2 align-top">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={item.dispatchQty}
+                                                            onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2 align-top">
+                                                        <select
+                                                            value={item.unit}
+                                                            onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                        >
+                                                            {normalizedUnits.map(option => (
+                                                                <option key={option} value={option}>{option}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2 relative">
+                                                        <div className="relative">
+                                                            <textarea
+                                                                value={item.name}
+                                                                onChange={(e) => handleDescriptionInput(item.id, e.target.value)}
+                                                                onFocus={() => handleDescriptionFocus(item.id)}
+                                                                onBlur={() => handleDescriptionBlur(item.id)}
+                                                                className={`w-full px-2 py-1 border rounded resize-none h-16 uppercase ${isLinked ? 'border-green-400 bg-green-50' : ''}`}
+                                                                placeholder="Type to search inventory or enter freely..."
+                                                            ></textarea>
+                                                            {isLinked && (
+                                                                <div className="flex items-center gap-1 mt-1">
+                                                                    <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-300">
+                                                                        🔗 Linked: {linkedInvItem?.sku || item.inventoryId}
+                                                                        {linkedInvItem && <span className="text-green-500 ml-1">(Stock: {linkedInvItem.qty})</span>}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleUnlinkItem(item.id)}
+                                                                        className="text-xs text-red-500 hover:text-red-700 hover:underline ml-1"
+                                                                    >
+                                                                        Unlink
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {!isLinked && item.name.length >= 2 && focusedRowId === item.id && suggestions.length > 0 && (
+                                                                <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30 max-h-48 overflow-y-auto">
+                                                                    <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 border-b font-semibold">Inventory Suggestions</div>
+                                                                    {suggestions.map(inv => (
+                                                                        <button
+                                                                            key={inv.id}
+                                                                            type="button"
+                                                                            onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(item.id, inv); }}
+                                                                            className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-gray-50 transition-colors flex items-center justify-between gap-2"
+                                                                        >
+                                                                            <div>
+                                                                                <p className="font-medium text-gray-800 text-sm">{inv.name}</p>
+                                                                                <p className="text-xs text-gray-400">{inv.sku} · {inv.brand || 'No brand'}</p>
+                                                                            </div>
+                                                                            <div className="text-right flex-shrink-0">
+                                                                                <p className="text-xs text-gray-500">Stock: <span className="font-semibold">{inv.qty}</span></p>
+                                                                                <p className="text-xs text-gray-400">{formatCurrency(inv.price)}</p>
+                                                                            </div>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-2 align-top">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={item.price}
+                                                            onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                            className="w-full px-2 py-1 border rounded"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2 align-top text-right">
+                                                        <button onClick={() => handleRemoveRow(item.id)} className="text-red-500 hover:text-red-700 font-semibold">Remove</button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                         {items.length === 0 && (
                                             <tr>
                                                 <td colSpan="5" className="p-6 text-center text-gray-500">No manual items added yet.</td>
@@ -1118,8 +1297,115 @@
             );
         };
 
+        const ToolsReceiptModal = ({ sites, inventory, onClose, onFinalize, initialData = null, onDraftChange, unitOptions = [] }) => {
+            const generateToolRef = () => `TR-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+            const [siteId, setSiteId] = useState(initialData?.siteId || '');
+            const [customerName, setCustomerName] = useState(initialData?.customerName || '');
+            const [address, setAddress] = useState(initialData?.address || '');
+            const [poNumber, setPoNumber] = useState(initialData?.poNumber || generateToolRef());
+            const [remarks, setRemarks] = useState(initialData?.remarks || '');
+            const [showPrice, setShowPrice] = useState(initialData?.showPrice ?? true);
+            const defaultUnit = unitOptions[0] || 'PCS';
+            const normalizedUnits = ensurePreferredUnitList(unitOptions);
+
+            const buildRow = () => ({ id: crypto.randomUUID(), dispatchQty: 1, unit: defaultUnit, name: '', price: 0, inventoryId: null, isManual: true });
+            const [items, setItems] = useState(initialData?.items && initialData.items.length > 0 ? initialData.items : [buildRow()]);
+
+            useEffect(() => {
+                if (initialData) {
+                    setSiteId(initialData.siteId || '');
+                    setCustomerName(initialData.customerName || '');
+                    setAddress(initialData.address || '');
+                    setPoNumber(initialData.poNumber || generateToolRef());
+                    setRemarks(initialData.remarks || '');
+                    setItems(initialData.items || [buildRow()]);
+                    setShowPrice(initialData.showPrice ?? true);
+                } else {
+                    setPoNumber(generateToolRef());
+                }
+            }, [initialData]);
+
+            const handleItemChange = (rowId, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id !== rowId) return item;
+                    if (field === 'dispatchQty') return { ...item, dispatchQty: Math.max(0, Number(value)) };
+                    if (field === 'price') return { ...item, price: Math.max(0, Number(value)) };
+                    if (field === 'unit') return { ...item, unit: normalizeUnitValue(value) || defaultUnit };
+                    if (field === 'name') return { ...item, name: value.toUpperCase() };
+                    return item;
+                }));
+            };
+
+            const handleAddRow = () => setItems(prev => [...prev, buildRow()]);
+            const handleRemoveRow = (id) => setItems(prev => prev.filter(item => item.id !== id));
+
+            const handleFinalize = () => {
+                if (!siteId) { alert('Please select a site'); return; }
+                const cleanedItems = items.filter(item => item.name.trim() && item.dispatchQty > 0);
+                if (cleanedItems.length === 0) { alert('Add at least one item'); return; }
+                const receiptData = { siteId, customerName, address, poNumber, remarks, items: cleanedItems, showPrice, origin: 'tools' };
+                onDraftChange(receiptData);
+                onFinalize(receiptData, 'tools');
+            };
+
+            return (
+                <Modal onClose={onClose} size="7xl">
+                    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <h2 className="text-2xl font-bold text-gray-800">Tools Recipient (Manual)</h2>
+                            <button type="button" onClick={handleAddRow} className="px-4 py-2 rounded-full text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700">➕ Add Tool</button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                <option value="">-- Select Site --</option>
+                                {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <input type="text" placeholder="Issued To / Customer" value={customerName} onChange={e => setCustomerName(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="Reference Number (Optional)" value={poNumber} onChange={e => setPoNumber(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="Address/Location" value={address} onChange={e => setAddress(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                        </div>
+                        <div className="border rounded-lg bg-white overflow-x-auto">
+                            <table className="w-full text-left text-sm min-w-[600px]">
+                                <thead className="bg-blue-50">
+                                    <tr>
+                                        <th className="p-3 w-20">Qty</th>
+                                        <th className="p-3 w-32">Unit</th>
+                                        <th className="p-3">Description of Tools</th>
+                                        <th className="p-3 w-32">Unit Price</th>
+                                        <th className="p-3 w-16"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {items.map(item => (
+                                        <tr key={item.id} className="border-b">
+                                            <td className="p-2"><input type="number" value={item.dispatchQty} onChange={(e) => handleItemChange(item.id, 'dispatchQty', e.target.value)} className="w-full px-2 py-1 border rounded" /></td>
+                                            <td className="p-2">
+                                                <select value={item.unit} onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)} className="w-full px-2 py-1 border rounded">
+                                                    {normalizedUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                                                </select>
+                                            </td>
+                                            <td className="p-2"><textarea value={item.name} onChange={(e) => handleItemChange(item.id, 'name', e.target.value)} className="w-full px-2 py-1 border rounded resize-none h-16 uppercase" /></td>
+                                            <td className="p-2"><input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', e.target.value)} className="w-full px-2 py-1 border rounded" /></td>
+                                            <td className="p-2"><button onClick={() => handleRemoveRow(item.id)} className="text-red-500 font-bold">X</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <textarea placeholder="Specific Remarks" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase h-20" />
+                        <label className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show price on preview</label>
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                            <button onClick={handleFinalize} className="px-6 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700">Preview & Finalize Tools DR</button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
         // Form for creating a new delivery receipt
-        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => {} }) => {
+        const DeliveryReceiptForm = ({ inventory, sites, onFinalize, onClose, setNotification, initialData = null, onDraftChange = () => { } }) => {
             const [siteId, setSiteId] = useState(initialData?.siteId || '');
             const [customerName, setCustomerName] = useState(initialData?.customerName || '');
             const [address, setAddress] = useState(initialData?.address || '');
@@ -1248,15 +1534,15 @@
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                 <h2 className="text-2xl font-bold text-gray-800">Create Delivery Receipt</h2>
                             </div>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                                     <option value="">-- Select Site --</option>
-                                     {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                 </select>
-                                 <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                 <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleTextChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                                 <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
-                             </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <select value={siteId} onChange={e => setSiteId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                                    <option value="">-- Select Site --</option>
+                                    {sites.filter(s => s.status !== 'Finished').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                                <input type="text" placeholder="Customer Name" value={customerName} onChange={handleTextChange(setCustomerName)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                <input type="text" placeholder="PO Number (Optional)" value={poNumber} onChange={handleTextChange(setPoNumber)} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                                <input type="text" placeholder="Address" value={address} onChange={handleTextChange(setAddress)} className="w-full px-3 py-2 border rounded-lg uppercase md:col-span-2" />
+                            </div>
                             <input type="text" placeholder="Search for items to add..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[40vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
@@ -1348,33 +1634,39 @@
                             <div className="space-y-2 text-sm p-2 bg-gray-100 rounded-md">
                                 <label className="flex items-center gap-2"><input type="checkbox" checked={showPrice} onChange={() => setShowPrice(!showPrice)} /> Show Price & Totals</label>
                             </div>
-                             <div className="flex justify-end gap-2 pt-4 border-t">
-                                 <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                     Preview & Finalize
-                                 </button>
-                             </div>
+                            <div className="flex justify-end gap-2 pt-4 border-t">
+                                <button onClick={handleFinalize} disabled={cart.length === 0} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                    Preview & Finalize
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Modal>
             );
         };
-        
+
         // Modal for showing historical documents (DRs, Orders)
-        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template }) => {
+        const DocumentHistoryModal = ({ documents, onClose, openDetailView, title, actions = [], type, template, sites = [] }) => {
             const [searchTerm, setSearchTerm] = useState('');
+            const [siteFilter, setSiteFilter] = useState('');
             const [viewingReceipt, setViewingReceipt] = useState(null);
 
             const filteredDocuments = useMemo(() => {
                 const baseDocs = documents || [];
                 if (type !== 'dr_manager') return baseDocs;
+                let filtered = baseDocs;
+                if (siteFilter) {
+                    filtered = filtered.filter(doc => doc.siteName === siteFilter);
+                }
                 const term = searchTerm.trim().toLowerCase();
-                if (!term) return baseDocs;
-                return baseDocs.filter(doc => {
+                if (!term) return filtered;
+                return filtered.filter(doc => {
                     const number = (doc.drNumber || doc.orderNumber || '').toLowerCase();
                     const identifier = (doc.customerName || doc.requestedBy || '').toLowerCase();
-                    return number.includes(term) || identifier.includes(term);
+                    const site = (doc.siteName || '').toLowerCase();
+                    return number.includes(term) || identifier.includes(term) || site.includes(term);
                 });
-            }, [documents, searchTerm, type]);
+            }, [documents, searchTerm, siteFilter, type]);
 
             const groupedDocuments = useMemo(() => {
                 const source = type === 'dr_manager' ? filteredDocuments : (documents || []);
@@ -1424,13 +1716,23 @@
                         ) : (
                             <>
                                 {type === 'dr_manager' && (
-                                    <input
-                                        type="text"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="w-full px-3 py-2 border rounded-lg"
-                                        placeholder="Search receipts by number or identifier..."
-                                    />
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="flex-1 px-3 py-2 border rounded-lg"
+                                            placeholder="Search receipts by number or identifier..."
+                                        />
+                                        <select
+                                            value={siteFilter}
+                                            onChange={(e) => setSiteFilter(e.target.value)}
+                                            className="px-3 py-2 border rounded-lg min-w-[180px]"
+                                        >
+                                            <option value="">All Sites</option>
+                                            {sites.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                    </div>
                                 )}
                                 <div className="h-[60vh] overflow-y-auto border rounded-lg p-4">
                                     {hasDocuments ? (
@@ -1458,25 +1760,25 @@
                                                                 return 'text-gray-500 bg-gray-100';
                                                             }
                                                             return (
-                                                             <tr key={doc.id} className="border-b hover:bg-gray-50">
-                                                                 <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
-                                                                 <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
-                                                                 <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
-                                                                 <td className="p-3">{doc.items.length}</td>
-                                                                 <td className="p-3">
-                                                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
-                                                                         {doc.status || 'Active'}
-                                                                     </span>
-                                                                 </td>
-                                                                 <td className="p-3 text-right">
-                                                                     <div className="flex gap-2 justify-end">
-                                                                         <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
-                                                                         {actions.map(action => (
-                                                                             <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
-                                                                         ))}
-                                                                     </div>
-                                                                 </td>
-                                                             </tr>
+                                                                <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                                                    <td className="p-3 font-mono">{doc.drNumber || doc.orderNumber}</td>
+                                                                    <td className="p-3">{doc.createdAt?.toDate().toLocaleDateString()}</td>
+                                                                    <td className="p-3">{doc.customerName || doc.requestedBy || "N/A"}</td>
+                                                                    <td className="p-3">{doc.items.length}</td>
+                                                                    <td className="p-3">
+                                                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(doc.status)}`}>
+                                                                            {doc.status || 'Active'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="p-3 text-right">
+                                                                        <div className="flex gap-2 justify-end">
+                                                                            <button onClick={() => handleView(doc)} className="text-indigo-600 hover:underline text-sm">View</button>
+                                                                            {actions.map(action => (
+                                                                                <button key={action.label} onClick={() => action.handler(doc)} disabled={action.disabled && action.disabled(doc)} className={action.className}>{action.label}</button>
+                                                                            ))}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
                                                             )
                                                         })}
                                                     </tbody>
@@ -1493,7 +1795,150 @@
                 </Modal>
             )
         };
-        
+
+        // Modal for tracking DR status per site
+        const DRTrackerModal = ({ deliveryReceipts, sites, onClose, onViewDR, searchTerm, setSearchTerm, expandedSite, setExpandedSite }) => {
+            const siteStats = useMemo(() => {
+                const stats = {};
+
+                // Initialize with all sites
+                sites.forEach(site => {
+                    stats[site.name] = {
+                        siteName: site.name,
+                        total: 0,
+                        returned: 0,
+                        unreturned: 0,
+                        unreturnedDocs: [],
+                        voided: 0
+                    };
+                });
+
+                // Tally receipts
+                deliveryReceipts.forEach(doc => {
+                    const siteName = doc.siteName || 'Uncategorized';
+                    if (!stats[siteName]) {
+                        stats[siteName] = { siteName, total: 0, returned: 0, unreturned: 0, unreturnedDocs: [], voided: 0 };
+                    }
+
+                    const s = stats[siteName];
+                    s.total++;
+
+                    if (doc.status === 'Voided') {
+                        s.voided++;
+                    } else if (doc.status === 'Finished' || doc.status === 'Completed') {
+                        s.returned++;
+                    } else {
+                        // All other statuses are considered unreturned
+                        s.unreturned++;
+                        s.unreturnedDocs.push(doc);
+                    }
+                });
+
+                let results = Object.values(stats);
+                if (searchTerm) {
+                    const term = searchTerm.toLowerCase();
+                    results = results.filter(s => s.siteName.toLowerCase().includes(term));
+                }
+                return results;
+            }, [deliveryReceipts, sites, searchTerm]);
+
+            return (
+                <Modal onClose={onClose} size="3xl">
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-xl font-bold text-gray-800">DR Status Tracker</h2>
+                            <div className="text-[10px] text-gray-400 font-mono uppercase">Site Overview</div>
+                        </div>
+
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Search site name... (Flexible site search)"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full px-3 py-2 text-sm border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+                            />
+                            {searchTerm && (
+                                <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>
+                            )}
+                        </div>
+
+                        <div className="overflow-hidden border rounded-xl bg-white shadow-sm">
+                            <div className="max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
+                                <table className="w-full text-left text-sm border-collapse">
+                                    <thead className="sticky top-0 bg-gray-50 border-b z-10 shadow-sm">
+                                        <tr>
+                                            <th className="p-3 font-semibold text-gray-600 text-xs">Site Name</th>
+                                            <th className="p-3 font-semibold text-gray-600 text-center text-xs w-16">Total</th>
+                                            <th className="p-3 font-semibold text-green-600 text-center text-xs w-16">Ret.</th>
+                                            <th className="p-3 font-semibold text-orange-600 text-center text-xs w-16">Un-ret.</th>
+                                            <th className="p-3 font-semibold text-red-600 text-center text-xs w-16">Void</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {siteStats.map(stat => (
+                                            <React.Fragment key={stat.siteName}>
+                                                <tr
+                                                    className={`hover:bg-gray-50 transition-colors cursor-pointer ${expandedSite === stat.siteName ? 'bg-indigo-50/40 font-bold' : ''}`}
+                                                    onClick={() => setExpandedSite(expandedSite === stat.siteName ? null : stat.siteName)}
+                                                >
+                                                    <td className="p-3 text-gray-700 flex items-center gap-2 break-words" title={stat.siteName}>
+                                                        <span className="text-indigo-400 text-[8px] transform transition-transform duration-200" style={{ transform: expandedSite === stat.siteName ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                                                        {stat.siteName}
+                                                    </td>
+                                                    <td className="p-3 text-center text-gray-500">{stat.total}</td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`text-green-700 font-bold ${stat.returned > 0 ? 'bg-green-100 px-1.5 py-0.5 rounded-full' : ''}`}>{stat.returned || '-'}</span>
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`text-orange-700 font-bold ${stat.unreturned > 0 ? 'bg-orange-100 px-1.5 py-0.5 rounded-full' : ''}`}>{stat.unreturned || '-'}</span>
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`text-red-700 font-bold ${stat.voided > 0 ? 'bg-red-100 px-1.5 py-0.5 rounded-full' : ''}`}>{stat.voided || '-'}</span>
+                                                    </td>
+                                                </tr>
+                                                {expandedSite === stat.siteName && (
+                                                    <tr className="bg-gray-50/50">
+                                                        <td colSpan="5" className="p-0">
+                                                            <div className="px-6 py-3 bg-white/50 border-y">
+                                                                <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-2">Un-returned DRs:</h4>
+                                                                {stat.unreturnedDocs.length > 0 ? (
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                        {stat.unreturnedDocs.map(doc => (
+                                                                            <div
+                                                                                key={doc.id}
+                                                                                onClick={(e) => { e.stopPropagation(); onViewDR(doc); }}
+                                                                                className="bg-white border border-gray-100 rounded p-2 flex justify-between items-center shadow-xs cursor-pointer hover:border-indigo-400 hover:shadow-sm transition-all group"
+                                                                            >
+                                                                                <div className="flex flex-col overflow-hidden">
+                                                                                    <span className="font-bold text-indigo-600 group-hover:text-indigo-700 text-xs truncate">{doc.drNumber}</span>
+                                                                                    <span className="text-[10px] text-gray-500 truncate">{doc.customerName || 'N/A'}</span>
+                                                                                </div>
+                                                                                <span className="text-[9px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">VIEW ➔</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-[11px] italic text-gray-400">All DRs returned for this site.</p>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        ))}
+                                        {siteStats.length === 0 && (
+                                            <tr><td colSpan="5" className="p-8 text-center text-gray-400 italic text-sm">No sites found matching your search.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
         // Component to display a detailed, printable receipt view
         const ReceiptDetailView = ({ receipt, onClose, template, isPreview = false, onConfirm, onCancel, onDone, confirmText, renderInline = false }) => {
             const [isSaving, setIsSaving] = useState(false);
@@ -1507,16 +1952,16 @@
                 }
             };
             const totalValue = receipt.items.reduce((sum, item) => sum + ((item.dispatchQty || item.requestedQty) * item.price), 0);
-            
+
             const effectiveTemplate = {
-                title: 'DELIVERY RECEIPT', 
-                logoUrl: '', 
+                title: 'DELIVERY RECEIPT',
+                logoUrl: '',
                 color: '#dc2626',
                 companyName: 'Your Company LLC',
                 companyAddress: '123 Business Rd, Suite 456, Business City',
                 companyContact: '(123) 456-7890',
                 companyEmail: 'contact@yourcompany.com',
-                signatory1: 'Received by / Date', 
+                signatory1: 'Received by / Date',
                 signatory2: 'Issued by',
                 signatory3: '',
                 signatory4: '',
@@ -1524,12 +1969,12 @@
             };
 
             const showPrice = receipt.showPrice !== false;
-            
+
             const handleConfirm = async () => {
                 setIsSaving(true);
                 const success = await onConfirm();
                 setIsSaving(false);
-                if(success) {
+                if (success) {
                     setIsSaved(true);
                 }
             };
@@ -1539,7 +1984,7 @@
                     {/* Header */}
                     <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
                         <div className="w-1/4">
-                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}} />}
+                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.onerror = null; }} />}
                         </div>
                         <div className="w-3/4 text-right">
                             <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
@@ -1553,7 +1998,7 @@
                     <div className="text-center my-8">
                         <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
                     </div>
-                    
+
                     {/* Customer & DR Info */}
                     <div className="grid grid-cols-2 gap-8 mb-8">
                         <div>
@@ -1576,7 +2021,7 @@
                                     <span className="text-right">{receipt.poNumber}</span>
                                 </div>
                             }
-                            {receipt.drNumber && 
+                            {receipt.drNumber &&
                                 <div className="grid grid-cols-2">
                                     <span className="font-bold">Site:</span>
                                     <span className="text-right">{receipt.siteName}</span>
@@ -1602,7 +2047,7 @@
                                     <tr key={item.id} className="border-b">
                                         <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
                                         <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
-                                        <td className="p-2 border align-top break-words">{item.name}</td>
+                                        <td className="p-2 border align-top break-words" style={{ whiteSpace: 'pre-wrap' }}>{item.name}</td>
                                         {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
                                         {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
                                     </tr>
@@ -1620,7 +2065,7 @@
                     </div>
 
                     {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
-                    
+
                     <div className="mt-24 grid grid-cols-2 gap-16 text-center">
                         {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
                         {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
@@ -1631,30 +2076,30 @@
             );
 
             if (isPreview) {
-                 return (
-                     <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
-                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
-                             <div className="p-8">
-                                 {content}
-                             </div>
-                             <div className="flex justify-end gap-4 p-4 border-t no-print">
-                                 {isSaved ? (
-                                     <>
-                                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                                         <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
-                                     </>
-                                 ) : (
-                                     <>
-                                         {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
-                                         {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
-                                             {isSaving ? 'Saving...' : confirmText || 'Confirm'}
-                                         </button>}
-                                     </>
-                                 )}
-                             </div>
-                         </div>
-                     </div>
-                 )
+                return (
+                    <div className="fixed inset-0 bg-transparent z-[60] flex justify-center items-start p-4 overflow-y-auto">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative transform transition-all duration-300 my-8">
+                            <div className="p-8">
+                                {content}
+                            </div>
+                            <div className="flex justify-end gap-4 p-4 border-t no-print">
+                                {isSaved ? (
+                                    <>
+                                        <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                                        <button onClick={onDone} className="px-6 py-2 bg-gray-200 rounded-full">Done</button>
+                                    </>
+                                ) : (
+                                    <>
+                                        {onCancel && <button onClick={onCancel} className="px-6 py-2 bg-gray-200 rounded-full">Go Back & Edit</button>}
+                                        {onConfirm && <button onClick={handleConfirm} disabled={isSaving} className="px-6 py-2 text-white bg-teal-600 rounded-full disabled:bg-teal-300">
+                                            {isSaving ? 'Saving...' : confirmText || 'Confirm'}
+                                        </button>}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )
             }
 
             if (renderInline) {
@@ -1672,10 +2117,10 @@
             return (
                 <Modal onClose={onClose} size="3xl">
                     {content}
-                     <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
-                         <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
-                         <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
-                     </div>
+                    <div className="flex justify-end gap-4 pt-4 mt-4 border-t no-print">
+                        <button onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Close</button>
+                        <button onClick={printContent} className="px-6 py-2 text-white bg-blue-600 rounded-full">Print</button>
+                    </div>
                 </Modal>
             )
         };
@@ -1687,10 +2132,10 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [isSaving, setIsSaving] = useState(false);
 
-            const filteredInventory = useMemo(() => inventory.filter(i => 
+            const filteredInventory = useMemo(() => inventory.filter(i =>
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             ), [inventory, searchTerm]);
-            
+
             const handleUppercaseChange = (setter) => (e) => setter(e.target.value.toUpperCase());
 
             const addToCart = (item) => {
@@ -1702,17 +2147,17 @@
                     return [...prev, { ...item, requestedQty: 1 }];
                 });
             };
-            
+
             const updateCartQty = (id, qty) => setOrderCart(prev => prev.map(i => i.id === id ? { ...i, requestedQty: Math.max(0, Number(qty)) } : i));
             const removeFromCart = (id) => setOrderCart(prev => prev.filter(i => i.id !== id));
 
             const handleSave = async () => {
                 const finalCart = orderCart.filter(i => i.requestedQty > 0);
-                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
-                
+                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item with a quantity greater than zero.' }); return; }
+
                 setIsSaving(true);
                 const orderData = {
-                    requestedBy: user.isAnonymous ? `User (${user.uid.substring(0,6)})` : user.email,
+                    requestedBy: user.isAnonymous ? `User (${user.uid.substring(0, 6)})` : user.email,
                     remarks,
                     items: finalCart
                 };
@@ -1755,7 +2200,7 @@
 
                         {/* Order Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                             <h3 className="text-xl font-bold text-gray-800">Your Order Cart</h3>
+                            <h3 className="text-xl font-bold text-gray-800">Your Order Cart</h3>
                             <div className="h-[40vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Qty</th><th className="p-2"></th></tr></thead>
@@ -1771,12 +2216,12 @@
                                 </table>
                             </div>
                             <input type="text" placeholder="Remarks (Optional)" value={remarks} onChange={handleUppercaseChange(setRemarks)} className="w-full px-3 py-2 border rounded-lg uppercase" />
-                             <div className="flex justify-end gap-4 pt-4 border-t">
-                                 <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
-                                 <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
-                                     {isSaving ? 'Submitting...' : `Submit Order (${orderCart.filter(i => i.requestedQty > 0).length})`}
-                                 </button>
-                             </div>
+                            <div className="flex justify-end gap-4 pt-4 border-t">
+                                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                <button onClick={handleSave} disabled={isSaving || orderCart.length === 0} className="px-6 py-2 text-white bg-blue-600 rounded-full disabled:bg-blue-300">
+                                    {isSaving ? 'Submitting...' : `Submit Order (${orderCart.filter(i => i.requestedQty > 0).length})`}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Modal>
@@ -1884,7 +2329,7 @@
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = `warehouse-report-${new Date().toISOString().slice(0,10)}.csv`;
+                link.download = `warehouse-report-${new Date().toISOString().slice(0, 10)}.csv`;
                 link.click();
                 URL.revokeObjectURL(link.href);
                 setNotification?.({ type: 'success', message: 'Report exported as CSV.' });
@@ -2038,17 +2483,17 @@
                 </Modal>
             );
         };
-        
+
         // Modal for editing the printable document template
         const TemplateEditorModal = ({ template, onSave, onClose, setNotification }) => {
             const [localTemplate, setLocalTemplate] = useState(template);
             const [isSaving, setIsSaving] = useState(false);
-            
+
             const handleChange = (e) => {
                 const { name, value } = e.target;
                 // Only uppercase text fields, not color pickers etc.
                 const isTextField = e.target.type === 'text' || e.target.type === 'email';
-                setLocalTemplate(prev => ({...prev, [name]: isTextField ? value.toUpperCase() : value }));
+                setLocalTemplate(prev => ({ ...prev, [name]: isTextField ? value.toUpperCase() : value }));
             };
 
             const handleFileChange = (e) => {
@@ -2065,18 +2510,18 @@
                     reader.readAsDataURL(file);
                 }
             };
-            
+
             const handleSave = async () => {
                 setIsSaving(true);
                 await onSave(localTemplate);
                 setIsSaving(false);
             }
-            
+
             return (
                 <Modal onClose={onClose} size="xl">
                     <div className="space-y-6">
                         <h2 className="text-2xl font-bold text-gray-800">Edit Document Template</h2>
-                        
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Company Name</label>
@@ -2087,7 +2532,7 @@
                                 <input type="text" name="title" value={localTemplate.title} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
-                        
+
                         <div>
                             <label className="block text-sm font-medium">Company Address</label>
                             <input type="text" name="companyAddress" value={localTemplate.companyAddress} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
@@ -2103,25 +2548,25 @@
                                 <input type="email" name="companyEmail" value={localTemplate.companyEmail} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 gap-4 items-center">
                             <div>
                                 <label className="block text-sm font-medium">Upload Logo</label>
-                                <input type="file" accept="image/*" onChange={handleFileChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                                <input type="file" accept="image/*" onChange={handleFileChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium">Document Number Color</label>
                                 <input type="color" name="color" value={localTemplate.color} onChange={handleChange} className="w-full h-10 px-1 py-1 border rounded-lg" />
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 gap-4">
-                             <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
-                             <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 1</label><input type="text" name="signatory1" value={localTemplate.signatory1} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 2</label><input type="text" name="signatory2" value={localTemplate.signatory2} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 3</label><input type="text" name="signatory3" value={localTemplate.signatory3} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
+                            <div><label className="block text-sm font-medium">Signatory 4</label><input type="text" name="signatory4" value={localTemplate.signatory4} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg uppercase" placeholder="Optional" /></div>
                         </div>
-                        
+
                         <div className="flex justify-end gap-4 pt-4 border-t">
                             <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-100 rounded-full">Cancel</button>
                             <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-white bg-indigo-600 rounded-full disabled:bg-indigo-300">
@@ -2143,7 +2588,7 @@
             const filteredInventory = useMemo(() => inventory.filter(i =>
                 (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             ), [inventory, searchTerm]);
-            
+
             const addToCart = (item) => {
                 setCart(prev => {
                     if (prev.find(i => i.id === item.id)) {
@@ -2159,7 +2604,7 @@
 
             const handleSave = async () => {
                 const finalCart = cart.filter(i => i.restockQty > 0);
-                if (finalCart.length === 0) { setNotification({type: 'error', message: 'Please add at least one item with a quantity greater than zero.'}); return; }
+                if (finalCart.length === 0) { setNotification({ type: 'error', message: 'Please add at least one item with a quantity greater than zero.' }); return; }
                 setIsSaving(true);
                 await onSave(finalCart, remarks);
                 setIsSaving(false);
@@ -2168,10 +2613,10 @@
             return (
                 <Modal onClose={onClose} size="7xl">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                         {/* Item List & Header */}
+                        {/* Item List & Header */}
                         <div className="lg:col-span-2 space-y-4">
                             <h2 className="text-2xl font-bold text-gray-800">Restock Inventory</h2>
-                           <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                            <input type="text" placeholder="Search for items to add to restock list..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
                             <div className="h-[50vh] overflow-y-auto border rounded-lg">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-50 z-10">
@@ -2198,9 +2643,9 @@
                             </div>
                         </div>
 
-                         {/* Restock Cart Column */}
+                        {/* Restock Cart Column */}
                         <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-                           <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
+                            <h3 className="text-xl font-bold text-gray-800">Restock List</h3>
                             <div className="h-[45vh] overflow-y-auto border rounded-lg bg-white">
                                 <table className="w-full text-left text-sm">
                                     <thead className="sticky top-0 bg-gray-100 z-10"><tr><th className="p-2">Item</th><th className="p-2 w-24">Add Qty</th><th className="p-2"></th></tr></thead>
@@ -2215,9 +2660,9 @@
                                     </tbody>
                                 </table>
                             </div>
-                           <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
+                            <input type="text" placeholder="Remarks / Supplier (Optional)" value={remarks} onChange={e => setRemarks(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-lg uppercase" />
                             <div className="flex justify-end gap-4 pt-4 border-t">
-                               <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
+                                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-full">Cancel</button>
                                 <button onClick={handleSave} disabled={isSaving || cart.length === 0} className="px-6 py-2 text-white bg-green-600 rounded-full disabled:bg-green-300">
                                     {isSaving ? 'Receiving...' : `Receive Stock (${cart.filter(i => i.restockQty > 0).length})`}
                                 </button>
@@ -2237,27 +2682,39 @@
             const [inventory, setInventory] = useState([]);
             const [sites, setSites] = useState([]);
             const [deliveryReceipts, setDeliveryReceipts] = useState([]);
+            const [toolsReceipts, setToolsReceipts] = useState([]);
             const [userOrders, setUserOrders] = useState([]);
             const [restockCart, setRestockCart] = useState([]);
             const [settings, setSettings] = useState({ adminPass: 'superadmin', reorderLevel: 10, lastOrderNumber: 0, unitOptions: [...DEFAULT_ISSUING_UNITS] });
-            const [drTemplate, setDrTemplate] = useState({ 
-                title: 'DELIVERY RECEIPT', 
-                logoUrl: '', 
+            const [drTemplate, setDrTemplate] = useState({
+                title: 'DELIVERY RECEIPT',
+                logoUrl: '',
                 color: '#dc2626',
+                companyName: '', companyAddress: '', companyContact: '', companyEmail: '',
+                signatory1: 'Received by / Date', signatory2: 'Issued by', signatory3: '', signatory4: ''
+            });
+            const [toolsTemplate, setToolsTemplate] = useState({
+                title: 'TOOLS DELIVERY RECEIPT',
+                logoUrl: '',
+                color: '#3b82f6',
                 companyName: '', companyAddress: '', companyContact: '', companyEmail: '',
                 signatory1: 'Received by / Date', signatory2: 'Issued by', signatory3: '', signatory4: ''
             });
             const [isLoading, setIsLoading] = useState(true);
             const [modal, setModal] = useState(null);
+            const [modalStack, setModalStack] = useState([]);
             const [notification, setNotification] = useState(null);
-            const [currentItem, setCurrentItem] = useState(null); 
+            const [currentItem, setCurrentItem] = useState(null);
             const [pendingReceipt, setPendingReceipt] = useState(null);
             const [pendingReceiptOrigin, setPendingReceiptOrigin] = useState('inventory');
             const [receiptDraft, setReceiptDraft] = useState(null);
             const [manualReceiptDraft, setManualReceiptDraft] = useState(null);
+            const [toolsReceiptDraft, setToolsReceiptDraft] = useState(null);
             const [receiptToVoid, setReceiptToVoid] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
-            
+            const [trackerSearchTerm, setTrackerSearchTerm] = useState('');
+            const [trackerExpandedSite, setTrackerExpandedSite] = useState(null);
+
             // --- Global App ID ---
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
@@ -2274,13 +2731,13 @@
                             messagingSenderId: "267729758583",
                             appId: "1:267729758583:web:f5f7ca26afc99c17819972",
                             measurementId: "G-1DH9GT5RXS"
-                          };
+                        };
 
                     if (!firebaseConfig?.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
                         setNotification({ type: 'error', message: 'Firebase configuration is missing or invalid. App cannot start.' });
                         setIsAuthReady(true); setIsLoading(false); return;
                     }
-                    
+
                     const app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
@@ -2293,7 +2750,7 @@
                             const signInPromise = authToken ? signInWithCustomToken(auth, authToken) : signInAnonymously(auth);
                             signInPromise.catch(e => {
                                 console.error("Sign-in failed", e);
-                                setNotification({type: 'error', message: `Authentication failed: ${e.message}`});
+                                setNotification({ type: 'error', message: `Authentication failed: ${e.message}` });
                                 setIsAuthReady(true);
                             });
                         }
@@ -2308,15 +2765,16 @@
 
             // --- Data Fetching Effect ---
             useEffect(() => {
-                if (!isAuthReady || !user) return; 
-                
+                if (!isAuthReady || !user) return;
+
                 setIsLoading(true);
                 const basePath = `artifacts/${appId}/public/data`;
-                
+
                 const unsubInv = onSnapshot(query(collection(db, `${basePath}/inventory`), orderBy('name')), snap => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Inventory snapshot error:", err));
-                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Sites snapshot error:", err));
-                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("Receipts snapshot error:", err));
-                const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({id: d.id, ...d.data()}))), err => console.error("User Orders snapshot error:", err));
+                const unsubSites = onSnapshot(query(collection(db, `${basePath}/sites`), orderBy('name')), snap => setSites(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Sites snapshot error:", err));
+                const unsubReceipts = onSnapshot(query(collection(db, `${basePath}/deliveryReceipts`), orderBy('createdAt', 'desc')), snap => setDeliveryReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Receipts snapshot error:", err));
+                const unsubToolsReceipts = onSnapshot(query(collection(db, `${basePath}/toolsReceipts`), orderBy('createdAt', 'desc')), snap => setToolsReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("Tools Receipts snapshot error:", err));
+                const unsubOrders = onSnapshot(query(collection(db, `${basePath}/userOrders`), orderBy('createdAt', 'desc')), snap => setUserOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => console.error("User Orders snapshot error:", err));
                 const unsubSettings = onSnapshot(
                     doc(db, `${basePath}/settings/general`),
                     (d) => {
@@ -2328,27 +2786,30 @@
                                 ...data,
                                 unitOptions: normalizedUnits
                             }));
-                            setGlobalUnitOptions(normalizedUnits);
                         }
                     },
                     err => console.error("Settings snapshot error:", err)
                 );
-                const unsubTemplate = onSnapshot(doc(db, `${basePath}/settings/dr_template`), (d) => { if (d.exists()) { setDrTemplate(t => ({...t, ...d.data()})); } }, err => console.error("DR Template snapshot error:", err));
+
+                const unsubDrTemplate = onSnapshot(doc(db, `${basePath}/settings/drTemplate`), (d) => d.exists() && setDrTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("DR Template snapshot error:", err));
+                const unsubToolsTemplate = onSnapshot(doc(db, `${basePath}/settings/toolsTemplate`), (d) => d.exists() && setToolsTemplate(prev => ({ ...prev, ...d.data() })), err => console.error("Tools Template snapshot error:", err));
 
                 setIsLoading(false);
 
-                return () => { unsubInv(); unsubSites(); unsubReceipts(); unsubOrders(); unsubSettings(); unsubTemplate(); };
+                return () => {
+                    unsubInv(); unsubSites(); unsubReceipts(); unsubToolsReceipts(); unsubOrders(); unsubSettings(); unsubDrTemplate(); unsubToolsTemplate();
+                };
             }, [isAuthReady, user, appId]);
-            
+
             // --- Helper to log actions ---
-             const logAction = async (action, details) => {
-                 if(!db) return;
-                 try {
-                     await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), { 
-                         timestamp: serverTimestamp(), action, details, user: isAdminMode ? 'Admin' : 'User' 
-                     });
-                 } catch (error) { console.error("Failed to log action:", error); }
-             };
+            const logAction = async (action, details) => {
+                if (!db) return;
+                try {
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/logs`), {
+                        timestamp: serverTimestamp(), action, details, user: isAdminMode ? 'Admin' : 'User'
+                    });
+                } catch (error) { console.error("Failed to log action:", error); }
+            };
 
             // --- Business Logic Handlers ---
             const handleSaveSite = async (siteData) => {
@@ -2357,15 +2818,15 @@
                     if (siteData.id) { // Editing
                         const { id, ...dataToSave } = siteData;
                         await updateDoc(doc(db, path, id), dataToSave);
-                        setNotification({type: 'success', message: `Site "${siteData.name}" updated.`});
+                        setNotification({ type: 'success', message: `Site "${siteData.name}" updated.` });
                         await logAction('Site Updated', `Updated site: ${siteData.name}`);
                     } else { // Adding
                         await addDoc(collection(db, path), { ...siteData, lastDrNumber: 0, status: 'Active' });
-                        setNotification({type: 'success', message: `Site "${siteData.name}" added.`});
+                        setNotification({ type: 'success', message: `Site "${siteData.name}" added.` });
                         await logAction('Site Added', `New site created: ${siteData.name}`);
                     }
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to save site: ${e.message}`});
+                } catch (e) {
+                    setNotification({ type: 'error', message: `Failed to save site: ${e.message}` });
                 }
             };
 
@@ -2374,10 +2835,10 @@
                 const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
                 try {
                     await updateDoc(siteRef, { status: 'Finished' });
-                    setNotification({type: 'success', message: `Site "${site.name}" marked as finished.`});
+                    setNotification({ type: 'success', message: `Site "${site.name}" marked as finished.` });
                     await logAction('Site Finished', `Site ${site.name} was marked as finished.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                } catch (e) {
+                    setNotification({ type: 'error', message: `Failed to update site status: ${e.message}` });
                 }
             };
 
@@ -2386,28 +2847,28 @@
                 const siteRef = doc(db, `artifacts/${appId}/public/data/sites`, site.id);
                 try {
                     await updateDoc(siteRef, { status: 'Active' });
-                    setNotification({type: 'success', message: `Site "${site.name}" has been re-activated.`});
+                    setNotification({ type: 'success', message: `Site "${site.name}" has been re-activated.` });
                     await logAction('Site Re-activated', `Site ${site.name} was marked as active.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update site status: ${e.message}`});
+                } catch (e) {
+                    setNotification({ type: 'error', message: `Failed to update site status: ${e.message}` });
                 }
             };
-            
+
             const handleRestockItems = async (itemsToRestock, remarks) => {
-                 try {
-                     await runTransaction(db, async (transaction) => {
-                         for (const item of itemsToRestock) {
-                             const itemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
-                             transaction.update(itemRef, { qty: increment(item.restockQty) });
-                         }
-                     });
-                     
-                     const itemNames = itemsToRestock.map(i => `${i.name} (x${i.restockQty})`).join(', ');
-                     await logAction('Inventory Restocked', `Items: ${itemNames}. Remarks: ${remarks}`);
-                     setNotification({type: 'success', message: 'Inventory has been restocked.'});
-                     setRestockCart([]);
-                     closeModal();
-                 } catch(e) { console.error("Restock transaction failed:", e); setNotification({type: 'error', message: `Failed to restock items: ${e.message}`}); }
+                try {
+                    await runTransaction(db, async (transaction) => {
+                        for (const item of itemsToRestock) {
+                            const itemRef = doc(db, `artifacts/${appId}/public/data/inventory`, item.id);
+                            transaction.update(itemRef, { qty: increment(item.restockQty) });
+                        }
+                    });
+
+                    const itemNames = itemsToRestock.map(i => `${i.name} (x${i.restockQty})`).join(', ');
+                    await logAction('Inventory Restocked', `Items: ${itemNames}. Remarks: ${remarks}`);
+                    setNotification({ type: 'success', message: 'Inventory has been restocked.' });
+                    setRestockCart([]);
+                    closeModal();
+                } catch (e) { console.error("Restock transaction failed:", e); setNotification({ type: 'error', message: `Failed to restock items: ${e.message}` }); }
             }
 
             const handleSaveUserOrder = async (orderData) => {
@@ -2422,25 +2883,28 @@
                         transaction.set(doc(orderCollectionRef), { ...orderData, orderNumber: orderNumberString, status: 'Pending', createdAt: serverTimestamp() });
                         transaction.set(settingsRef, { lastOrderNumber: newOrderNumber }, { merge: true });
                     });
-                    
-                    setNotification({type: 'success', message: 'Your order has been submitted!'});
+
+                    setNotification({ type: 'success', message: 'Your order has been submitted!' });
                     await logAction('Order Submitted', `By user ${orderData.requestedBy}`);
                     closeModal();
-                } catch (e) { console.error("User order save failed:", e); setNotification({type: 'error', message: `Failed to submit order: ${e.message}`}); }
+                } catch (e) { console.error("User order save failed:", e); setNotification({ type: 'error', message: `Failed to submit order: ${e.message}` }); }
             };
-            
+
             const handleUpdateOrderStatus = async (order) => {
-                if(!order) return;
+                if (!order) return;
                 const orderRef = doc(db, `artifacts/${appId}/public/data/userOrders`, order.id);
                 try {
                     await updateDoc(orderRef, { status: 'Completed' });
-                    setNotification({type: 'success', message: `Order ${order.orderNumber} marked as completed.`});
+                    setNotification({ type: 'success', message: `Order ${order.orderNumber} marked as completed.` });
                     await logAction('Order Completed', `Order ${order.orderNumber}`);
-                } catch(e) { setNotification({type: 'error', message: `Failed to update order: ${e.message}`}); }
+                } catch (e) { setNotification({ type: 'error', message: `Failed to update order: ${e.message}` }); }
             };
-            
+
             const handleSaveReceipt = async (receiptData) => {
-                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/deliveryReceipts`);
+                const isTools = receiptData.origin === 'tools';
+                const collectionName = isTools ? 'toolsReceipts' : 'deliveryReceipts';
+                const receiptsCollectionRef = collection(db, `artifacts/${appId}/public/data/${collectionName}`);
+
                 try {
                     let finalDrNumber;
                     await runTransaction(db, async (transaction) => {
@@ -2448,16 +2912,15 @@
                         const siteDoc = await transaction.get(siteRef);
                         if (!siteDoc.exists()) throw new Error("Selected site does not exist.");
 
-                        const inventoryItems = (receiptData.items || []).filter(item => !item.isManual);
-                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        // Only check inventory if not a tools receipt or if it's explicitly linked to inventory
+                        const inventoryItems = (receiptData.items || []).filter(item => !isTools && (!item.isManual || item.inventoryId));
+                        const itemRefs = inventoryItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.inventoryId || item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        for(let i = 0; i < itemDocs.length; i++) {
+                        for (let i = 0; i < itemDocs.length; i++) {
                             const invItemDoc = itemDocs[i];
                             const requestedItem = inventoryItems[i];
-                            if (!invItemDoc.exists()) {
-                                throw new Error(`Inventory item "${requestedItem?.name || requestedItem?.id}" no longer exists.`);
-                            }
+                            if (!invItemDoc.exists()) throw new Error(`Inventory item "${requestedItem.name}" no longer exists.`);
                             if (invItemDoc.data().qty < requestedItem.dispatchQty) {
                                 throw new Error(`Insufficient stock for ${requestedItem.name}. Available: ${invItemDoc.data().qty}, Required: ${requestedItem.dispatchQty}.`);
                             }
@@ -2471,12 +2934,21 @@
                             transaction.update(itemRefs[i], { qty: increment(-inventoryItems[i].dispatchQty) });
                         }
 
-                        transaction.set(doc(receiptsCollectionRef), { ...receiptData, drNumber: drNumberString, siteName: siteDoc.data().name, createdAt: serverTimestamp(), status: 'Active' });
+                        const docPayload = {
+                            ...receiptData,
+                            drNumber: drNumberString,
+                            siteName: siteDoc.data().name,
+                            createdAt: serverTimestamp(),
+                            status: 'Active',
+                            type: isTools ? 'tools' : 'standard'
+                        };
+
+                        transaction.set(doc(receiptsCollectionRef), docPayload);
                         transaction.update(siteRef, { lastDrNumber: increment(1) });
                     });
-                    
-                    setNotification({ type: 'success', message: `Receipt ${finalDrNumber} saved successfully!`});
-                    await logAction('Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
+
+                    setNotification({ type: 'success', message: `${isTools ? 'Tools Receipt' : 'Receipt'} ${finalDrNumber} saved successfully!` });
+                    await logAction(isTools ? 'Tools Receipt Created' : 'Receipt Created', `DR ${finalDrNumber} for site ${receiptData.siteId} saved.`);
                     return true;
                 } catch (error) {
                     console.error("Receipt save transaction failed: ", error);
@@ -2484,8 +2956,8 @@
                     return false;
                 }
             };
-            
-            const handlePreviewAndFinalize = (receiptData) => {
+
+            const handlePreviewAndFinalize = (receiptData, drType = 'delivery') => {
                 const { origin, ...payload } = receiptData || {};
                 const selectedSite = sites.find(s => s.id === payload.siteId);
                 const nextDrNumber = (selectedSite?.lastDrNumber || 0) + 1;
@@ -2495,9 +2967,11 @@
                     ...payload,
                     drNumber: drNumberString,
                     siteName: selectedSite?.name || 'N/A',
-                    createdAt: { toDate: () => new Date() } // Mock server timestamp
+                    createdAt: { toDate: () => new Date() },
+                    origin: drType === 'tools' ? 'tools' : origin
                 };
-                setPendingReceiptOrigin(origin === 'manual' ? 'manual' : 'inventory');
+
+                setPendingReceiptOrigin(drType === 'tools' ? 'tools' : (origin === 'manual' ? 'manual' : 'inventory'));
                 setPendingReceipt(dataForPreview);
                 setModal('receipt_confirm_and_preview');
             };
@@ -2509,22 +2983,23 @@
                 try {
                     await runTransaction(db, async (transaction) => {
                         const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
-                        const itemRefs = receipt.items.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.id));
+                        const stockItems = receipt.items.filter(item => !item.isManual || item.inventoryId);
+                        const itemRefs = stockItems.map(item => doc(db, `artifacts/${appId}/public/data/inventory`, item.inventoryId || item.id));
                         const itemDocs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-                        for (let i = 0; i < receipt.items.length; i++) {
+                        for (let i = 0; i < stockItems.length; i++) {
                             if (itemDocs[i].exists()) {
-                                transaction.update(itemRefs[i], { qty: increment(receipt.items[i].dispatchQty) });
+                                transaction.update(itemRefs[i], { qty: increment(stockItems[i].dispatchQty) });
                             }
                         }
                         transaction.update(receiptRef, { status: 'Voided' });
                     });
-                    
+
                     await logAction('Receipt Voided', `DR ${receipt.drNumber} was voided.`);
-                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} has been voided.`});
+                    setNotification({ type: 'success', message: `Receipt ${receipt.drNumber} has been voided.` });
                     setReceiptToVoid(null);
-                    closeModal(); 
-                } catch(e) { console.error("Void receipt transaction failed:", e); setNotification({type: 'error', message: `Failed to void receipt: ${e.message}`}); setReceiptToVoid(null); }
+                    closeModal();
+                } catch (e) { console.error("Void receipt transaction failed:", e); setNotification({ type: 'error', message: `Failed to void receipt: ${e.message}` }); setReceiptToVoid(null); }
             };
 
             const handleFinishReceipt = async (receipt) => {
@@ -2532,13 +3007,13 @@
                 const receiptRef = doc(db, `artifacts/${appId}/public/data/deliveryReceipts`, receipt.id);
                 try {
                     await updateDoc(receiptRef, { status: 'Finished' });
-                    setNotification({type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.`});
+                    setNotification({ type: 'success', message: `Receipt ${receipt.drNumber} marked as finished.` });
                     await logAction('Receipt Finished', `DR ${receipt.drNumber} was marked as finished.`);
-                } catch(e) {
-                    setNotification({type: 'error', message: `Failed to update receipt status: ${e.message}`});
+                } catch (e) {
+                    setNotification({ type: 'error', message: `Failed to update receipt status: ${e.message}` });
                 }
             };
-            
+
             // --- CRUD Handlers ---
             const handleSaveItem = async (item) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
@@ -2586,7 +3061,7 @@
                             setNotification({ type: 'error', message: `An item with name "${item.name}" and brand "${item.brand}" already exists.` });
                             return;
                         }
-                        
+
                         await addDoc(collection(db, path), item);
                         await logAction('Item Added', `Added new item "${item.name}" (SKU: ${item.sku}) with initial quantity ${item.qty}`);
                         setNotification({ type: 'success', message: 'Item successfully added.' });
@@ -2600,57 +3075,57 @@
                 try {
                     await deleteDoc(doc(db, path, id));
                     await logAction('Item Deleted', `Deleted item "${name}"`);
-                    setNotification({type: 'success', message: 'Item successfully deleted.'});
-                } catch (e) { console.error("Delete error:", e); setNotification({type: 'error', message: `Failed to delete item: ${e.message}`}); }
+                    setNotification({ type: 'success', message: 'Item successfully deleted.' });
+                } catch (e) { console.error("Delete error:", e); setNotification({ type: 'error', message: `Failed to delete item: ${e.message}` }); }
             };
 
             const handleAdjustStock = async (item, adjustment) => {
                 const path = `artifacts/${appId}/public/data/inventory`;
                 const newQty = item.qty + adjustment;
                 if (newQty < 0) {
-                     setNotification({type: 'error', message: "Stock quantity cannot go below zero."}); return;
+                    setNotification({ type: 'error', message: "Stock quantity cannot go below zero." }); return;
                 }
                 try {
                     const itemRef = doc(db, path, item.id);
                     await updateDoc(itemRef, { qty: increment(adjustment) });
                     await logAction('Stock Adjusted', `${item.name} quantity changed by ${adjustment}. New Qty: ${newQty}`);
-                    setNotification({type: 'success', message: 'Stock adjusted successfully!'});
+                    setNotification({ type: 'success', message: 'Stock adjusted successfully!' });
                     closeModal();
-                } catch (e) { console.error("Stock adjustment error:", e); setNotification({type: 'error', message: `Failed to adjust stock: ${e.message}`}); }
+                } catch (e) { console.error("Stock adjustment error:", e); setNotification({ type: 'error', message: `Failed to adjust stock: ${e.message}` }); }
             };
-            
+
             const handleSaveSettings = async (newSettings) => {
                 try {
                     const sanitizedUnits = ensurePreferredUnitList(newSettings.unitOptions);
                     const payload = { ...newSettings, unitOptions: sanitizedUnits };
                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'general'), payload, { merge: true });
                     setSettings(prev => ({ ...prev, ...payload }));
-                    setGlobalUnitOptions(sanitizedUnits);
+
                     await logAction('Settings Updated', 'Admin preferences were updated.');
-                    setNotification({type: 'success', message: 'Settings saved successfully!'});
+                    setNotification({ type: 'success', message: 'Settings saved successfully!' });
                     closeModal();
                 } catch (e) {
                     console.error("Settings save error:", e);
-                    setNotification({type: 'error', message: `Failed to save settings: ${e.message}`});
+                    setNotification({ type: 'error', message: `Failed to save settings: ${e.message}` });
                 }
             };
-            
+
             const handleSaveDrTemplate = async (newTemplate) => {
                 try {
                     await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'dr_template'), newTemplate);
                     await logAction('DR Template Updated', 'Delivery receipt template was modified.');
-                    setNotification({type: 'success', message: 'DR Template saved!'});
+                    setNotification({ type: 'success', message: 'DR Template saved!' });
                     closeModal();
-                } catch (e) { console.error("DR Template save error:", e); setNotification({type: 'error', message: `Failed to save template: ${e.message}`}); }
+                } catch (e) { console.error("DR Template save error:", e); setNotification({ type: 'error', message: `Failed to save template: ${e.message}` }); }
             };
-            
+
             // --- Restock Cart ---
             const handleAddToRestockCart = (item) => {
                 setRestockCart(prev => {
-                     if (prev.find(i => i.id === item.id)) {
-                         setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
-                         return prev;
-                     }
+                    if (prev.find(i => i.id === item.id)) {
+                        setNotification({ type: 'info', message: `${item.name} is already in the restock list.` });
+                        return prev;
+                    }
                     return [...prev, { ...item, restockQty: 10 }];
                 });
             }
@@ -2660,18 +3135,28 @@
                 if (password === settings.adminPass) {
                     setIsAdminMode(true);
                     closeModal();
-                    setNotification({type: 'success', message: 'Admin mode unlocked!'});
+                    setNotification({ type: 'success', message: 'Admin mode unlocked!' });
                 } else {
-                    setNotification({type: 'error', message: 'Incorrect admin password.'});
+                    setNotification({ type: 'error', message: 'Incorrect admin password.' });
                 }
             };
-            
-            const openModal = (type, item = null) => {
+
+            const openModal = (type, item = null, pushToStack = false) => {
+                if (pushToStack && modal) {
+                    setModalStack(prev => [...prev, { type: modal, item: currentItem }]);
+                }
                 setCurrentItem(item);
                 setModal(type);
             };
 
             const closeModal = ({ preserveReceiptDraft = false, preserveManualDraft = false } = {}) => {
+                if (modalStack.length > 0) {
+                    const prev = modalStack[modalStack.length - 1];
+                    setModalStack(prevStack => prevStack.slice(0, -1));
+                    setModal(prev.type);
+                    setCurrentItem(prev.item);
+                    return;
+                }
                 setModal(null);
                 setCurrentItem(null);
                 setPendingReceipt(null);
@@ -2687,12 +3172,15 @@
             const closeReceiptComposer = () => closeModal({ preserveReceiptDraft: false });
             const returnToReceiptComposer = () => {
                 setPendingReceipt(null);
-                setModal(pendingReceiptOrigin === 'manual' ? 'manual_receipt' : 'receipt');
+                const origin = pendingReceiptOrigin;
+                if (origin === 'tools') setModal('tools_receipt');
+                else if (origin === 'manual') setModal('manual_receipt');
+                else setModal('receipt');
             };
 
             // --- Render Logic ---
             if (!isAuthReady || isLoading) return <Spinner text={!isAuthReady ? "Initializing..." : "Loading data..."} />;
-            
+
             const drManagerActions = isAdminMode ? [
                 {
                     label: "Mark as Finished",
@@ -2722,7 +3210,7 @@
                                 #print-area { display: block !important; }
                             }
                         `}</style>
-                        
+
                         <div className="container mx-auto p-4 sm:p-6 lg:p-8">
                             <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
                                 <div>
@@ -2732,56 +3220,59 @@
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                     <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
-                                         {isAdminMode ? '🔓' : '🛡️'}
-                                     </button>
-                                     
-                                     {isAdminMode ? (
-                                         <>
-                                             <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
-                                             <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
-                                             <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
-                                             <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
-                                             <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
-                                             <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
-                                                 Restock Items
-                                                 {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
-                                             </button>
-                                         </>
-                                     ) : (
-                                         <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
-                                     )}
-                                     
+                                    <button onClick={() => isAdminMode ? setIsAdminMode(false) : openModal('admin_login')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title={isAdminMode ? "Lock Admin Mode" : "Admin Access"}>
+                                        {isAdminMode ? '🔓' : '🛡️'}
+                                    </button>
+
+                                    {isAdminMode ? (
+                                        <>
+                                            <button onClick={() => openModal('sites')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Sites</button>
+                                            <button onClick={() => openModal('order_list')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Order List</button>
+                                            <button onClick={() => openModal('dr_template_editor')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Edit Template</button>
+                                            <button onClick={() => openModal('settings')} className="bg-white text-gray-700 font-semibold p-2 rounded-full hover:bg-gray-100 shadow-sm border" title="Settings">⚙️</button>
+                                            <button onClick={() => openModal('item')} className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-indigo-700 shadow-md text-sm">➕ Add Item</button>
+                                            <button onClick={() => openModal('restock')} className="bg-green-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-green-700 shadow-md text-sm relative">
+                                                Restock Items
+                                                {restockCart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{restockCart.length}</span>}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button onClick={() => openModal('user_order')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">📝 Order</button>
+                                    )}
+
+                                    <button onClick={() => openModal('tools_history')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📜 Tools History</button>
                                     <button onClick={() => openModal('dr_manager')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">Manage Receipts</button>
+                                    <button onClick={() => openModal('dr_tracker')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📡 DR Tracker</button>
                                     <button onClick={() => openModal('reports')} className="bg-white text-sm text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-100 shadow-sm border">📊 Reports</button>
+                                    <button onClick={() => openModal('tools_receipt')} className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-700 shadow-md text-sm">🛠️ Tools Receipt</button>
                                     <button onClick={() => openModal('manual_receipt')} className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-amber-600 shadow-md text-sm">✍️ Manual Receipt</button>
                                     <button onClick={() => openModal('receipt')} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-teal-600 shadow-md text-sm">🧾 Create Receipt</button>
                                 </div>
                             </header>
-                            
+
                             <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                 <div className="lg:col-span-3"><StatsWidget inventory={inventory} /></div>
                                 <LowStockWidget inventory={inventory} settings={settings} onRestock={handleAddToRestockCart} setNotification={setNotification} />
-                                <AllInventoryWidget 
+                                <AllInventoryWidget
                                     inventory={inventory}
-                                    onEdit={(item) => openModal('item', item)} 
-                                    onDelete={handleDeleteItem} 
+                                    onEdit={(item) => openModal('item', item)}
+                                    onDelete={handleDeleteItem}
                                     onAdjustStock={(item) => openModal('stock', item)}
-                                    isLoading={isLoading} 
-                                    searchTerm={searchTerm} 
-                                    setSearchTerm={setSearchTerm} 
+                                    isLoading={isLoading}
+                                    searchTerm={searchTerm}
+                                    setSearchTerm={setSearchTerm}
                                     isAdminMode={isAdminMode}
-                                    settings={settings} 
+                                    settings={settings}
                                 />
-                                 <LogsWidget isLoading={isLoading} appId={appId} />
+                                <LogsWidget isLoading={isLoading} appId={appId} />
                             </main>
                         </div>
                     </div>
 
                     {/* --- Modals Layer --- */}
                     {notification && <NotificationModal message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
-                    
-                    <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt"/>
+
+                    <ConfirmationModal isOpen={!!receiptToVoid} onClose={() => setReceiptToVoid(null)} onConfirm={() => handleVoidReceipt(receiptToVoid)} message={`Void DR "${receiptToVoid?.drNumber}"? This will return all items to stock. This cannot be undone.`} confirmText="Void Receipt" />
 
                     {modal === 'item' && <Modal onClose={closeModal} size="lg"><ItemForm currentItem={currentItem} onSave={handleSaveItem} onClose={closeModal} setNotification={setNotification} unitOptions={settings.unitOptions} /></Modal>}
                     {modal === 'stock' && <StockAdjustmentForm item={currentItem} onAdjust={handleAdjustStock} onClose={closeModal} setNotification={setNotification} />}
@@ -2791,12 +3282,35 @@
                     {modal === 'manual_receipt' && (
                         <ManualReceiptModal
                             sites={sites}
+                            inventory={inventory}
                             unitOptions={settings.unitOptions}
                             onFinalize={handlePreviewAndFinalize}
                             onClose={closeModal}
-                            setNotification={setNotification}
                             initialData={manualReceiptDraft}
                             onDraftChange={setManualReceiptDraft}
+                        />
+                    )}
+                    {modal === 'tools_receipt' && (
+                        <ToolsReceiptModal
+                            sites={sites}
+                            inventory={inventory}
+                            unitOptions={settings.unitOptions}
+                            onFinalize={handlePreviewAndFinalize}
+                            onClose={closeModal}
+                            initialData={toolsReceiptDraft}
+                            onDraftChange={setToolsReceiptDraft}
+                        />
+                    )}
+                    {modal === 'tools_history' && (
+                        <DocumentHistoryModal
+                            documents={toolsReceipts}
+                            onClose={closeModal}
+                            openDetailView={(r) => openModal('dr_detail', r)}
+                            title="Tools Receipt History"
+                            actions={[]}
+                            type="dr_manager"
+                            template={toolsTemplate}
+                            sites={sites}
                         />
                     )}
                     {modal === 'receipt' && (
@@ -2805,14 +3319,13 @@
                             sites={sites}
                             onFinalize={handlePreviewAndFinalize}
                             onClose={closeReceiptComposer}
-                            setNotification={setNotification}
                             initialData={receiptDraft}
                             onDraftChange={setReceiptDraft}
                         />
                     )}
                     {modal === 'user_order' && <UserOrderForm inventory={inventory} onSave={handleSaveUserOrder} onClose={closeModal} setNotification={setNotification} user={user} />}
                     {modal === 'dr_template_editor' && <TemplateEditorModal template={drTemplate} onSave={handleSaveDrTemplate} onClose={closeModal} setNotification={setNotification} />}
-                    {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification}/>}
+                    {modal === 'restock' && <RestockForm inventory={inventory} initialCart={restockCart} onSave={handleRestockItems} onClose={closeModal} setNotification={setNotification} />}
 
                     {modal === 'dr_manager' && (
                         <DocumentHistoryModal
@@ -2823,6 +3336,7 @@
                             actions={drManagerActions}
                             type="dr_manager"
                             template={drTemplate}
+                            sites={sites}
                         />
                     )}
                     {modal === 'dr_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
@@ -2837,9 +3351,9 @@
                         />
                     )}
 
-                    {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline"}]} />}
+                    {modal === 'order_list' && <DocumentHistoryModal documents={userOrders} onClose={closeModal} openDetailView={(r) => openModal('order_detail', r)} title="User Order List" actions={[{ label: "Mark Completed", handler: handleUpdateOrderStatus, disabled: (r) => r.status === 'Completed', className: "text-green-600 hover:underline text-sm disabled:text-gray-400 disabled:no-underline" }]} />}
                     {modal === 'order_detail' && <ReceiptDetailView receipt={currentItem} onClose={closeModal} template={drTemplate} />}
-                    
+
                     {modal === 'receipt_confirm_and_preview' && pendingReceipt && (
                         <ReceiptDetailView
                             receipt={pendingReceipt}
@@ -2852,6 +3366,19 @@
                         />
                     )}
 
+                    {modal === 'dr_tracker' && (
+                        <DRTrackerModal
+                            deliveryReceipts={deliveryReceipts}
+                            sites={sites}
+                            onClose={closeModal}
+                            onViewDR={(doc) => openModal('dr_detail', doc, true)}
+                            searchTerm={trackerSearchTerm}
+                            setSearchTerm={setTrackerSearchTerm}
+                            expandedSite={trackerExpandedSite}
+                            setExpandedSite={setTrackerExpandedSite}
+                        />
+                    )}
+
                 </>
             );
         }
@@ -2860,4 +3387,5 @@
         root.render(<App />);
     </script>
 </body>
+
 </html>
