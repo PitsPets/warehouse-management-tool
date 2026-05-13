@@ -1975,10 +1975,12 @@
                 companyAddress: '123 Business Rd, Suite 456, Business City',
                 companyContact: '(123) 456-7890',
                 companyEmail: 'contact@yourcompany.com',
+                tin: '',
                 signatory1: 'Received by / Date',
                 signatory2: 'Issued by',
                 signatory3: '',
                 signatory4: '',
+                footerNote: 'NOT VALID FOR INPUT TAX',
                 ...template
             };
 
@@ -1994,97 +1996,135 @@
             };
 
             const content = (
-                <div className="printable-area mx-auto w-full max-w-[850px] space-y-6 p-8 bg-white font-serif text-gray-900">
-                    {/* Header */}
-                    <div className="flex justify-between items-start border-b-2 pb-4 border-gray-700">
-                        <div className="w-1/4">
-                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-24 object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.onerror = null; }} />}
+                <div className="printable-area mx-auto w-full max-w-[850px] bg-white font-sans text-gray-900 p-6">
+                    {/* Company Header */}
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="w-1/3">
+                            {effectiveTemplate.logoUrl && <img src={effectiveTemplate.logoUrl} alt="Company Logo" className="max-h-20 object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.onerror = null; }} />}
                         </div>
-                        <div className="w-3/4 text-right">
-                            <h1 className="text-2xl font-bold uppercase">{effectiveTemplate.companyName || 'Your Company'}</h1>
-                            <p className="text-sm">{effectiveTemplate.companyAddress}</p>
-                            <p className="text-sm">{effectiveTemplate.companyContact}</p>
-                            <p className="text-sm">{effectiveTemplate.companyEmail}</p>
+                        <div className="w-2/3 text-right">
+                            <h1 className="text-xl font-bold uppercase text-gray-800">{effectiveTemplate.companyName || 'Your Company'}</h1>
+                            <p className="text-xs text-gray-600">{effectiveTemplate.companyAddress}</p>
+                            <p className="text-xs text-gray-600">{effectiveTemplate.companyContact}</p>
+                            <p className="text-xs text-gray-600">{effectiveTemplate.companyEmail}</p>
                         </div>
                     </div>
 
-                    {/* Title */}
-                    <div className="text-center my-8">
-                        <h2 className="text-3xl font-bold uppercase tracking-wider">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
+                    {/* DR Title */}
+                    <div className="text-center my-4">
+                        <h2 className="text-xl font-bold uppercase tracking-wider border-b-2 border-gray-800 pb-2 inline-block">{receipt.drNumber ? effectiveTemplate.title : 'ORDER REQUEST'}</h2>
                     </div>
 
-                    {/* Customer & DR Info */}
-                    <div className="grid grid-cols-2 gap-8 mb-8">
+                    {/* DR Info Grid */}
+                    <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
                         <div>
-                            <h3 className="font-bold text-gray-500 uppercase text-sm mb-2">Deliver To:</h3>
-                            <p className="font-bold">{receipt.customerName || receipt.requestedBy || 'N/A'}</p>
-                            <p>{receipt.address || 'N/A'}</p>
+                            <div className="grid grid-cols-[100px_1fr] gap-1 mb-1">
+                                <span className="font-semibold">DR No.:</span>
+                                <span>{receipt.drNumber || receipt.orderNumber || 'N/A'}</span>
+                            </div>
+                            <div className="grid grid-cols-[100px_1fr] gap-1 mb-1">
+                                <span className="font-semibold">Date:</span>
+                                <span>{receipt.createdAt?.toDate().toLocaleDateString()}</span>
+                            </div>
+                            <div className="grid grid-cols-[100px_1fr] gap-1">
+                                <span className="font-semibold">Client:</span>
+                                <span>{receipt.customerName || receipt.requestedBy || receipt.siteName || 'N/A'}</span>
+                            </div>
                         </div>
-                        <div className="text-right">
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">No.:</span>
-                                <span className="text-right">{receipt.drNumber || receipt.orderNumber}</span>
-                            </div>
-                            <div className="grid grid-cols-2">
-                                <span className="font-bold">Date:</span>
-                                <span className="text-right">{receipt.createdAt?.toDate().toLocaleDateString()}</span>
-                            </div>
-                            {receipt.poNumber &&
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">P.O. No.:</span>
-                                    <span className="text-right">{receipt.poNumber}</span>
+                        <div>
+                            {receipt.poNumber && (
+                                <div className="grid grid-cols-[100px_1fr] gap-1 mb-1">
+                                    <span className="font-semibold">P.O. No.:</span>
+                                    <span>{receipt.poNumber}</span>
                                 </div>
-                            }
-                            {receipt.drNumber &&
-                                <div className="grid grid-cols-2">
-                                    <span className="font-bold">Site:</span>
-                                    <span className="text-right">{receipt.siteName}</span>
+                            )}
+                            {receipt.drNumber && (
+                                <div className="grid grid-cols-[100px_1fr] gap-1 mb-1">
+                                    <span className="font-semibold">Site:</span>
+                                    <span>{receipt.siteName || 'N/A'}</span>
                                 </div>
-                            }
+                            )}
+                            {effectiveTemplate.tin && (
+                                <div className="grid grid-cols-[100px_1fr] gap-1">
+                                    <span className="font-semibold">TIN:</span>
+                                    <span>{effectiveTemplate.tin}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {/* Items Table */}
-                    <div className="overflow-x-hidden">
-                        <table className="w-full text-left text-sm table-fixed border-collapse">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="w-20 p-2 border">Qty</th>
-                                    <th className="w-24 p-2 border">Unit</th>
-                                    <th className="p-2 border">Description</th>
-                                    {showPrice && <th className="w-32 p-2 border text-right">Unit Price</th>}
-                                    {showPrice && <th className="w-32 p-2 border text-right">Total</th>}
+                    <div className="overflow-x-hidden mb-4">
+                        <table className="w-full text-left text-sm table-fixed border-collapse border border-gray-800">
+                            <thead>
+                                <tr className="bg-gray-100">
+                                    <th className="w-16 p-2 border border-gray-800 text-center">Qty</th>
+                                    <th className="w-20 p-2 border border-gray-800 text-center">Unit</th>
+                                    <th className="p-2 border border-gray-800">Description</th>
+                                    {showPrice && <th className="w-28 p-2 border border-gray-800 text-right">Unit Price</th>}
+                                    {showPrice && <th className="w-28 p-2 border border-gray-800 text-right">Total</th>}
                                 </tr>
                             </thead>
                             <tbody>
-                                {receipt.items.map(item => (
-                                    <tr key={item.id} className="border-b">
-                                        <td className="p-2 border align-top">{item.dispatchQty || item.requestedQty}</td>
-                                        <td className="p-2 border align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
-                                        <td className="p-2 border align-top break-words" style={{ whiteSpace: 'pre-wrap' }}>{item.name}</td>
-                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency(item.price)}</td>}
-                                        {showPrice && <td className="p-2 border text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                {receipt.items.map((item, index) => (
+                                    <tr key={item.id || index} className="border-b border-gray-300">
+                                        <td className="p-2 border border-gray-800 text-center align-top">{item.dispatchQty || item.requestedQty}</td>
+                                        <td className="p-2 border border-gray-800 text-center align-top">{item.unit || item.issuingUnit || 'PCS'}</td>
+                                        <td className="p-2 border border-gray-800 align-top break-words" style={{ whiteSpace: 'pre-wrap' }}>{item.name}</td>
+                                        {showPrice && <td className="p-2 border border-gray-800 text-right align-top">{formatCurrency(item.price)}</td>}
+                                        {showPrice && <td className="p-2 border border-gray-800 text-right align-top">{formatCurrency((item.dispatchQty || item.requestedQty) * item.price)}</td>}
+                                    </tr>
+                                ))}
+                                {/* Empty rows for writing additional items */}
+                                {[...Array(Math.max(0, 8 - receipt.items.length))].map((_, i) => (
+                                    <tr key={`empty-${i}`} className="border-b border-gray-300">
+                                        <td className="p-2 border border-gray-800 h-8"></td>
+                                        <td className="p-2 border border-gray-800"></td>
+                                        <td className="p-2 border border-gray-800"></td>
+                                        {showPrice && <td className="p-2 border border-gray-800"></td>}
+                                        {showPrice && <td className="p-2 border border-gray-800"></td>}
                                     </tr>
                                 ))}
                             </tbody>
                             {showPrice && (
-                                <tfoot className="font-bold">
-                                    <tr>
-                                        <td colSpan={showPrice ? "4" : "2"} className="p-2 border text-right">Total Value:</td>
-                                        <td className="p-2 border text-right">{formatCurrency(totalValue)}</td>
+                                <tfoot>
+                                    <tr className="font-bold">
+                                        <td colSpan={showPrice ? "3" : "2"} className="p-2 border border-gray-800 text-right">Total Value:</td>
+                                        <td className="p-2 border border-gray-800 text-right" colSpan={showPrice ? "2" : "1"}>{formatCurrency(totalValue)}</td>
                                     </tr>
                                 </tfoot>
                             )}
                         </table>
                     </div>
 
-                    {receipt.remarks && <div className="mt-8"><h4 className="font-bold text-sm mb-1">Remarks:</h4><p className="text-sm border p-2 min-h-[50px]">{receipt.remarks || 'None'}</p></div>}
+                    {receipt.remarks && (
+                        <div className="mb-4">
+                            <span className="font-semibold text-sm">Remarks:</span>
+                            <p className="text-sm border border-gray-400 p-2 min-h-[40px] mt-1">{receipt.remarks || 'None'}</p>
+                        </div>
+                    )}
 
-                    <div className="mt-24 grid grid-cols-2 gap-16 text-center">
-                        {effectiveTemplate.signatory1 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory1}</p></div>}
-                        {effectiveTemplate.signatory2 && <div><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory2}</p></div>}
-                        {effectiveTemplate.signatory3 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory3}</p></div>}
-                        {effectiveTemplate.signatory4 && <div className="mt-16"><p className="border-t pt-2 border-gray-400">{effectiveTemplate.signatory4}</p></div>}
+                    {/* Acknowledgement Section */}
+                    <div className="mt-6 grid grid-cols-2 gap-8">
+                        <div className="text-center">
+                            <p className="text-xs text-gray-600 mb-1">Received by:</p>
+                            <div className="border-t border-gray-800 pt-1 mt-8">
+                                <p className="text-sm font-semibold">{effectiveTemplate.signatory1 || 'Signature over Printed Name'}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">Date: _______________</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-xs text-gray-600 mb-1">Issued by:</p>
+                            <div className="border-t border-gray-800 pt-1 mt-8">
+                                <p className="text-sm font-semibold">{effectiveTemplate.signatory2 || 'Authorized Signature'}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">Date: _______________</p>
+                        </div>
+                    </div>
+
+                    {/* Footer Note */}
+                    <div className="mt-8 text-center">
+                        <p className="text-xs text-gray-500 italic">{effectiveTemplate.footerNote || 'NOT VALID FOR INPUT TAX'}</p>
                     </div>
                 </div>
             );
